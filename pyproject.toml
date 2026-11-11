@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eaa-backend-modules"
+version = "0.1.0"
+description = "EAA edge backend slice: multi-protocol router, telemetry ring buffer, SQLite persistence"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.10,<3",
+    "pyzmq>=26,<28",
+    "aiosqlite>=0.20,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+]
+
+[project.scripts]
+eaa-orchestrator = "main_nvhn:cli"
+eaa-mock-feed = "tests.mock.feed:cli"
+
+[tool.setuptools]
+package-dir = { "" = "root" }
+py-modules = ["main_nvhn"]
+packages = [
+    "mock_data",
+    "mock_data.schemas",
+    "mock_data.constants",
+    "event_router",
+    "telemetry_ring",
+    "db_client",
+    "tests",
+    "tests.mock",
+    "tests.unit_tests",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+testpaths = ["root/tests/unit_tests"]
+pythonpath = ["root"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["root"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
