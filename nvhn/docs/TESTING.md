@@ -13,10 +13,10 @@ scenarios, and troubleshooting. For design details see
 - A writable temporary directory for IPC sockets
 - No external services required
 
-Install from `eaa-monorepo/nvhn`:
+Install from the repository root:
 
 ```bash
-cd eaa-monorepo/nvhn
+cd eaa-monorepo
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -43,11 +43,11 @@ ruff --version
 ### 2.1 Run everything
 
 ```bash
-cd eaa-monorepo/nvhn
+cd eaa-monorepo
 source .venv/bin/activate
 pytest -q
-ruff check . ../container-orchestrator
-ruff format --check . ../container-orchestrator
+ruff check shared container-orchestrator nvhn
+ruff format --check shared container-orchestrator nvhn
 ```
 
 Expected:
@@ -139,8 +139,8 @@ development instance.
 ### 2.3 Run a subset
 
 ```bash
-pytest tests/test_router.py -q
-pytest tests/test_persistence.py -q
+pytest nvhn/tests/test_router.py -q
+pytest nvhn/tests/test_persistence.py -q
 pytest -q -k "drop or retry or shutdown"
 pytest -q -k "zmq or protocol"
 ```
@@ -162,7 +162,7 @@ of the failure-path tests.
 ### 3.1 Clean state
 
 ```bash
-cd eaa-monorepo/nvhn
+cd eaa-monorepo
 make clean-db
 make clean-ipc
 ```
@@ -398,7 +398,7 @@ recommended way to run multiple manual scenarios without touching the default DB
 ### 3.11 Queue-pressure observation
 
 Deterministic queue-drop behavior is covered by
-`tests/test_persistence.py::test_worker_queue_drops_oldest_under_pressure`. A manual
+`nvhn/tests/test_persistence.py::test_worker_queue_drops_oldest_under_pressure`. A manual
 stress version is timing-dependent: run at high rates with a small queue and short
 flush interval, for example:
 
@@ -491,7 +491,7 @@ sockets and lock; custom IPC directories must be removed separately.
 
 Guidelines:
 
-- Use `tests/support.py` factories (`make_sensor_event`, `make_cv_event`, etc.)
+- Use `nvhn/tests/support.py` factories (`make_sensor_event`, `make_cv_event`, etc.)
   instead of hand-building envelopes.
 - Use `FakeSink`, `FakePersistence`, and `FakeRepository` for module-level tests.
 - Use `Database(tmp_path / "test.db")` for real SQLite tests; do not use

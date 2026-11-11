@@ -11,13 +11,13 @@ test:
 	.venv/bin/pytest
 
 lint:
-	.venv/bin/ruff check . ../container-orchestrator
+	.venv/bin/ruff check shared container-orchestrator nvhn
 
 format:
-	.venv/bin/ruff format . ../container-orchestrator
+	.venv/bin/ruff format shared container-orchestrator nvhn
 
 format-check:
-	.venv/bin/ruff format --check . ../container-orchestrator
+	.venv/bin/ruff format --check shared container-orchestrator nvhn
 
 run:
 	.venv/bin/eaa-orchestrator

@@ -26,7 +26,7 @@ eaa-orchestrator = "eaa_orchestrator.main:cli"
 eaa-mock-feed = "mocks.feed:cli"
 
 [tool.setuptools]
-package-dir = { "" = ".", "eaa_orchestrator" = "../container-orchestrator/src/eaa_orchestrator" }
+package-dir = { "" = ".", "eaa_orchestrator" = "container-orchestrator/src/eaa_orchestrator", "mocks" = "nvhn/mocks" }
 packages = [
     "shared",
     "shared.schemas",
@@ -42,7 +42,8 @@ packages = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 asyncio_default_test_loop_scope = "function"
-testpaths = ["tests"]
+testpaths = ["nvhn/tests"]
+pythonpath = ["nvhn"]
 addopts = "-ra"
 
 [tool.ruff]

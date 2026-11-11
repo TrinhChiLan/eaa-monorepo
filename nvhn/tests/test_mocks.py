@@ -5,8 +5,6 @@ import random
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from mocks.feed import (
     FeedConfig,
     MockFeed,
@@ -15,6 +13,8 @@ from mocks.feed import (
     stt_json,
     ui_json,
 )
+from pydantic import ValidationError
+
 from shared.schemas.events import (
     CVFrameWire,
     IntentWire,

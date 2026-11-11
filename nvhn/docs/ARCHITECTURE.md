@@ -3,7 +3,7 @@
 This document explains how the implemented EAA backend slice works, why each
 decision was made, and how it maps back to the low-level design and pseudocode.
 
-- [README](../README.md) — quick start and configuration
+- [README](../../README.md) — quick start and configuration
 - [TESTING.md](TESTING.md) — automated and manual verification
 
 ---
@@ -27,7 +27,7 @@ changing the event contract.
 
 ```text
 eaa-monorepo/
-├── container-orchestrator/src/eaa_orchestrator/
+├── container-orchestrator/src/eaa_orchestrator/   # production runtime
 │   ├── main.py                    startup, signals, stats, shutdown
 │   ├── router/event_router.py     external protocols -> EventEnvelope
 │   ├── telemetry/ring_buffer.py   bounded recent-event store
@@ -35,21 +35,27 @@ eaa-monorepo/
 │       ├── database.py            connection, WAL, schema version
 │       └── repository.py          SQL, batch worker, retention
 │
-└── nvhn/
-    ├── shared/
-    │   ├── schemas/events.py      EventEnvelope + wire models
-    │   ├── schemas/telemetry.py   stats and retention dataclasses
-    │   ├── contracts.py           EventSink / PersistenceSink protocols
-    │   ├── constants/zmq_topics.py topics and endpoints
-    │   └── config.py              environment-backed Settings
-    ├── mocks/feed.py              mock external producers
-    ├── tests/                     unit and integration tests
-    ├── docs/                      architecture and testing guides
-    ├── reference/                 PDF, architecture XML, pseudocode
-    ├── pyproject.toml
-    ├── requirements*.txt
-    └── Makefile
+├── shared/                         # production cross-container contract
+│   ├── schemas/events.py          EventEnvelope + wire models
+│   ├── schemas/telemetry.py       stats and retention dataclasses
+│   ├── contracts.py               EventSink / PersistenceSink protocols
+│   ├── constants/zmq_topics.py    topics and endpoints
+│   └── config.py                  environment-backed Settings
+│
+├── nvhn/                           # development-only
+│   ├── mocks/feed.py              mock external producers
+│   ├── tests/                     unit and integration tests
+│   ├── docs/                      architecture and testing guides
+│   └── reference/                 PDF, architecture XML, pseudocode
+│
+├── pyproject.toml
+├── requirements*.txt
+├── Makefile
+└── README.md
 ```
+
+Local runtime data, when present, is under `data/` at the repository root. It is
+gitignored; production sets `EAA_DB_PATH` to a mounted volume instead.
 
 At runtime the object graph is:
 
@@ -88,7 +94,7 @@ without starting ingestion.
 
 ## 4. Canonical event contract
 
-Defined in [events.py](../shared/schemas/events.py). The canonical envelope is a
+Defined in [events.py](../../shared/schemas/events.py). The canonical envelope is a
 frozen Pydantic v2 model with `extra="forbid"`.
 
 ### 4.1 Envelope fields
@@ -618,9 +624,9 @@ ring buffer do not need to change.
 | `container-orchestrator/src/router/event_router.py` | `container-orchestrator/src/eaa_orchestrator/router/event_router.py` |
 | `container-orchestrator/src/persistence/database.py` | `container-orchestrator/src/eaa_orchestrator/persistence/database.py` |
 | `container-orchestrator/src/persistence/repository.py` | `container-orchestrator/src/eaa_orchestrator/persistence/repository.py` |
-| `shared/schemas/events.py` | `nvhn/shared/schemas/events.py` |
-| `shared/constants/zmq_topics.py` | `nvhn/shared/constants/zmq_topics.py` |
-| `shared/schemas/telemetry.py` | `nvhn/shared/schemas/telemetry.py` |
+| `shared/schemas/events.py` | `shared/schemas/events.py` |
+| `shared/constants/zmq_topics.py` | `shared/constants/zmq_topics.py` |
+| `shared/schemas/telemetry.py` | `shared/schemas/telemetry.py` |
 | WAL-mode SQLite | Implemented |
 | ZeroMQ SUB/PULL | Implemented, with explicit bind/connect topology |
 | Pydantic v2 normalization | Implemented |
