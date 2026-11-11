@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install test lint format run mock clean-db clean-ipc
+.PHONY: install test lint format format-check run mock clean-db clean-ipc
 
 install:
 	$(PYTHON) -m venv .venv
@@ -11,10 +11,13 @@ test:
 	.venv/bin/pytest
 
 lint:
-	.venv/bin/ruff check .
+	.venv/bin/ruff check . ../container-orchestrator
 
 format:
-	.venv/bin/ruff format .
+	.venv/bin/ruff format . ../container-orchestrator
+
+format-check:
+	.venv/bin/ruff format --check . ../container-orchestrator
 
 run:
 	.venv/bin/eaa-orchestrator

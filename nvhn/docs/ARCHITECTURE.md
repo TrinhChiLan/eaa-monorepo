@@ -26,23 +26,29 @@ changing the event contract.
 ## 2. Component map
 
 ```text
-container-orchestrator/src/eaa_orchestrator/
-├── main.py                    startup, signals, stats, shutdown
-├── router/event_router.py     external protocols -> EventEnvelope
-├── telemetry/ring_buffer.py   bounded recent-event store
-└── persistence/
-    ├── database.py            connection, WAL, schema version
-    └── repository.py          SQL, batch worker, retention
-
-shared/
-├── schemas/events.py          EventEnvelope + wire models
-├── schemas/telemetry.py       stats and retention dataclasses
-├── contracts.py               EventSink / PersistenceSink protocols
-├── constants/zmq_topics.py    topics and endpoints
-└── config.py                  environment-backed Settings
-
-mocks/feed.py                  mock external producers
-tests/                         unit and integration tests
+eaa-monorepo/
+├── container-orchestrator/src/eaa_orchestrator/
+│   ├── main.py                    startup, signals, stats, shutdown
+│   ├── router/event_router.py     external protocols -> EventEnvelope
+│   ├── telemetry/ring_buffer.py   bounded recent-event store
+│   └── persistence/
+│       ├── database.py            connection, WAL, schema version
+│       └── repository.py          SQL, batch worker, retention
+│
+└── nvhn/
+    ├── shared/
+    │   ├── schemas/events.py      EventEnvelope + wire models
+    │   ├── schemas/telemetry.py   stats and retention dataclasses
+    │   ├── contracts.py           EventSink / PersistenceSink protocols
+    │   ├── constants/zmq_topics.py topics and endpoints
+    │   └── config.py              environment-backed Settings
+    ├── mocks/feed.py              mock external producers
+    ├── tests/                     unit and integration tests
+    ├── docs/                      architecture and testing guides
+    ├── reference/                 PDF, architecture XML, pseudocode
+    ├── pyproject.toml
+    ├── requirements*.txt
+    └── Makefile
 ```
 
 At runtime the object graph is:
@@ -219,7 +225,7 @@ available.
 
 ## 6. Router internals
 
-File: [event_router.py](../container-orchestrator/src/eaa_orchestrator/router/event_router.py)
+File: [event_router.py](../../container-orchestrator/src/eaa_orchestrator/router/event_router.py)
 
 ### 6.1 Start sequence
 
@@ -312,7 +318,7 @@ Invalid-message logs are rate-limited to 10 per 60 seconds per router.
 
 ## 7. Ring buffer internals
 
-File: [ring_buffer.py](../container-orchestrator/src/eaa_orchestrator/telemetry/ring_buffer.py)
+File: [ring_buffer.py](../../container-orchestrator/src/eaa_orchestrator/telemetry/ring_buffer.py)
 
 ### 7.1 Storage
 
@@ -363,7 +369,7 @@ raises, the buffer increments `persistence_errors` and keeps the event in memory
 
 ## 8. Persistence worker internals
 
-File: [repository.py](../container-orchestrator/src/eaa_orchestrator/persistence/repository.py)
+File: [repository.py](../../container-orchestrator/src/eaa_orchestrator/persistence/repository.py)
 
 ### 8.1 Queue policy
 
@@ -446,7 +452,7 @@ The worker does not close the database; `main` owns repository/database shutdown
 
 ## 9. Database and repository internals
 
-File: [database.py](../container-orchestrator/src/eaa_orchestrator/persistence/database.py)
+File: [database.py](../../container-orchestrator/src/eaa_orchestrator/persistence/database.py)
 
 ### 9.1 Connection and pragmas
 
@@ -607,14 +613,14 @@ ring buffer do not need to change.
 
 ### 12.1 Low-level design PDF
 
-| PDF element | Implementation |
+| PDF element | Implementation location |
 |---|---|
-| `container-orchestrator/src/router/event_router.py` | Same path, `EventRouter` |
-| `container-orchestrator/src/persistence/database.py` | Same path, `Database` |
-| `container-orchestrator/src/persistence/repository.py` | Same path, `TelemetryRepository` + worker |
-| `shared/schemas/events.py` | Canonical and wire models |
-| `shared/constants/zmq_topics.py` | Topics and endpoints |
-| `shared/schemas/telemetry.py` | Stats and retention dataclasses |
+| `container-orchestrator/src/router/event_router.py` | `container-orchestrator/src/eaa_orchestrator/router/event_router.py` |
+| `container-orchestrator/src/persistence/database.py` | `container-orchestrator/src/eaa_orchestrator/persistence/database.py` |
+| `container-orchestrator/src/persistence/repository.py` | `container-orchestrator/src/eaa_orchestrator/persistence/repository.py` |
+| `shared/schemas/events.py` | `nvhn/shared/schemas/events.py` |
+| `shared/constants/zmq_topics.py` | `nvhn/shared/constants/zmq_topics.py` |
+| `shared/schemas/telemetry.py` | `nvhn/shared/schemas/telemetry.py` |
 | WAL-mode SQLite | Implemented |
 | ZeroMQ SUB/PULL | Implemented, with explicit bind/connect topology |
 | Pydantic v2 normalization | Implemented |

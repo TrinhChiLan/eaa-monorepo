@@ -13,10 +13,10 @@ scenarios, and troubleshooting. For design details see
 - A writable temporary directory for IPC sockets
 - No external services required
 
-Install from the monorepo root:
+Install from `eaa-monorepo/nvhn`:
 
 ```bash
-cd eaa-monorepo
+cd eaa-monorepo/nvhn
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -43,11 +43,11 @@ ruff --version
 ### 2.1 Run everything
 
 ```bash
-cd eaa-monorepo
+cd eaa-monorepo/nvhn
 source .venv/bin/activate
 pytest -q
-ruff check .
-ruff format --check .
+ruff check . ../container-orchestrator
+ruff format --check . ../container-orchestrator
 ```
 
 Expected:
@@ -162,7 +162,7 @@ of the failure-path tests.
 ### 3.1 Clean state
 
 ```bash
-cd eaa-monorepo
+cd eaa-monorepo/nvhn
 make clean-db
 make clean-ipc
 ```

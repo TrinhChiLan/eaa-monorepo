@@ -26,7 +26,7 @@ eaa-orchestrator = "eaa_orchestrator.main:cli"
 eaa-mock-feed = "mocks.feed:cli"
 
 [tool.setuptools]
-package-dir = { "" = ".", "eaa_orchestrator" = "container-orchestrator/src/eaa_orchestrator" }
+package-dir = { "" = ".", "eaa_orchestrator" = "../container-orchestrator/src/eaa_orchestrator" }
 packages = [
     "shared",
     "shared.schemas",

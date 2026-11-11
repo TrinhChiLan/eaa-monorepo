@@ -1,0 +1,49 @@
+import asyncio
+from collections import deque
+
+class TelemetryRingBuffer:
+    def __init__(self, maxlen: int = 1000, batch_size: int = 50, flush_interval: float = 2.0):
+        # Bounded circular buffer: automatically drops oldest items when full
+        self.buffer = deque(maxlen=maxlen)
+        self.lock = asyncio.Lock()
+        
+        # Persistence queue configuration
+        self.db_queue = asyncio.Queue()
+        self.batch_size = batch_size
+        self.flush_interval = flush_interval
+
+    async def push(self, item):
+        """Adds new telemetry data to the ring buffer and queues it for the DB."""
+        async with self.lock:
+            self.buffer.append(item)
+        
+        # Send a copy to the database persistence queue non-blocking
+        await self.db_queue.put(item)
+
+    async def get_latest(self, count: int = 10):
+        """Returns the most recent N items for UI WebSocket clients."""
+        async with self.lock:
+            # Convert right-end of deque (newest items) to a list
+            items = list(self.buffer)
+            return items[-count:]
+
+    async def start_db_flush_worker(self, db_repository):
+        """Background worker that flushes metrics to SQLite in batches."""
+        batch = []
+        while True:
+            try:
+                # Wait for an item or timeout to flush accumulated batch
+                try:
+                    item = await asyncio.wait_for(self.db_queue.get(), timeout=self.flush_interval)
+                    batch.append(item)
+                    self.db_queue.task_done()
+                except asyncio.TimeoutError:
+                    pass
+
+                # Flush if batch size is reached or timer expired and data exists
+                if len(batch) >= self.batch_size or (batch and self.db_queue.empty()):
+                    await db_repository.bulk_insert_telemetry(batch)
+                    batch.clear()
+                    
+            except Exception as e:
+                print(f"Error flushing telemetry to database: {e}")

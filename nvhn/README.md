@@ -1,7 +1,7 @@
 # EAA Backend Modules — Router, Telemetry Ring Buffer, SQLite Persistence
 
 A runnable Python 3.12 slice of the Edge Agentic Assistant (EAA) backend described in
-[EAA-Output2-Backend-LowLevel-Design.docx.pdf](../EAA-Output2-Backend-LowLevel-Design.docx.pdf).
+[EAA-Output2-Backend-LowLevel-Design.docx.pdf](reference/EAA-Output2-Backend-LowLevel-Design.docx.pdf).
 It implements the three scoped modules end to end and mocks every external producer:
 
 1. **Multi-protocol event router** — ZeroMQ PUB/SUB, ZeroMQ PUSH/PULL, and an
@@ -16,6 +16,27 @@ The current automated suite is **56 tests**, and `ruff check` is clean.
 - Detailed design and behavior: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Detailed test and verification guide: [docs/TESTING.md](docs/TESTING.md)
 
+## Repository layout
+
+The runnable code stays in `container-orchestrator/`; all supporting material lives in
+`nvhn/` so the repo root has only the main application directory and `nvhn/`:
+
+```text
+eaa-monorepo/
+├── container-orchestrator/     # main runtime code
+│   └── src/eaa_orchestrator/
+└── nvhn/                       # everything that supports it
+    ├── shared/                 # canonical schemas and contracts
+    ├── mocks/                  # mock external producers
+    ├── tests/                  # unit and integration tests
+    ├── docs/                   # architecture and testing guides
+    ├── reference/              # PDF, architecture XML, pseudocode
+    ├── pyproject.toml
+    ├── requirements*.txt
+    ├── Makefile
+    └── README.md
+```
+
 ---
 
 ## 1. What is implemented
@@ -25,11 +46,11 @@ The current automated suite is **56 tests**, and `ruff check` is clean.
 | Shared contract | [events.py](shared/schemas/events.py) | `EventEnvelope`, typed payloads, external wire models |
 | Shared contracts | [contracts.py](shared/contracts.py) | `EventSink`, `PersistenceSink`, `SubmitOutcome` |
 | Shared constants | [zmq_topics.py](shared/constants/zmq_topics.py) | Topics, endpoints, bind/connect topology |
-| Router | [event_router.py](container-orchestrator/src/eaa_orchestrator/router/event_router.py) | Ingest, validate, normalize, fan out |
-| Ring buffer | [ring_buffer.py](container-orchestrator/src/eaa_orchestrator/telemetry/ring_buffer.py) | Bounded recent-event store |
-| Database | [database.py](container-orchestrator/src/eaa_orchestrator/persistence/database.py) | Connection, WAL pragmas, schema version |
-| Repository | [repository.py](container-orchestrator/src/eaa_orchestrator/persistence/repository.py) | SQL, batch worker, retry, retention |
-| Runtime | [main.py](container-orchestrator/src/eaa_orchestrator/main.py) | Wiring, signals, stats logs |
+| Router | [event_router.py](../container-orchestrator/src/eaa_orchestrator/router/event_router.py) | Ingest, validate, normalize, fan out |
+| Ring buffer | [ring_buffer.py](../container-orchestrator/src/eaa_orchestrator/telemetry/ring_buffer.py) | Bounded recent-event store |
+| Database | [database.py](../container-orchestrator/src/eaa_orchestrator/persistence/database.py) | Connection, WAL pragmas, schema version |
+| Repository | [repository.py](../container-orchestrator/src/eaa_orchestrator/persistence/repository.py) | SQL, batch worker, retry, retention |
+| Runtime | [main.py](../container-orchestrator/src/eaa_orchestrator/main.py) | Wiring, signals, stats logs |
 | Mocks | [feed.py](mocks/feed.py) | Mock CV, sensor, STT, UI producers |
 
 ---
@@ -65,7 +86,7 @@ Raw JSON is confined to the router's external adapters.
 ### 3.1 Install
 
 ```bash
-cd eaa-monorepo
+cd eaa-monorepo/nvhn
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -284,11 +305,11 @@ eaa-orchestrator --help
 ### Automated
 
 ```bash
-cd eaa-monorepo
+cd eaa-monorepo/nvhn
 source .venv/bin/activate
 pytest -q
-ruff check .
-ruff format --check .
+ruff check . ../container-orchestrator
+ruff format --check . ../container-orchestrator
 ```
 
 Current expected result:

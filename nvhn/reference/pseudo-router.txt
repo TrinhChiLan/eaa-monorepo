@@ -1,0 +1,83 @@
+import asyncio
+import json
+import zmq
+import zmq.asyncio
+from pydantic import BaseModel, ValidationError
+
+# --- 1. Define Normalization Schemas (Pydantic) ---
+class FrameStatePayload(BaseModel):
+    timestamp: float
+    detected_objects: list[str]
+    confidence: float
+
+class IntentPayload(BaseModel):
+    transcript: str
+    intent: str
+    confidence: float
+
+# --- 2. Event Router Class ---
+class EventRouter:
+    def __init__(self, context_builder_queue, telemetry_buffer):
+        self.context_queue = context_builder_queue
+        self.telemetry_buffer = telemetry_buffer
+        
+        # Initialize ZeroMQ context for IPC listeners
+        self.zmq_ctx = zmq.asyncio.Context()
+        self.cv_sub_socket = self.zmq_ctx.socket(zmq.SUB)
+        self.stt_pull_socket = self.zmq_ctx.socket(zmq.PULL)
+        
+    async def initialize_sockets(self):
+        # Connect or bind to Unix domain sockets for IPC
+        self.cv_sub_socket.connect("ipc:///tmp/cv_stream.ipc")
+        self.cv_sub_socket.setsockopt_string(zmq.SUBSCRIBE, "") # Subscribe to all topics
+        
+        self.stt_pull_socket.bind("ipc:///tmp/stt_stream.ipc")
+
+    async def listen_cv_stream(self):
+        """Listens to high-frequency ZeroMQ Pub/Sub stream from container-cv"""
+        while True:
+            raw_data = await self.cv_sub_socket.recv_json()
+            try:
+                # 1. Normalize and validate via Pydantic
+                normalized_event = FrameStatePayload(**raw_data)
+                
+                # 2. Fan-out: Update Telemetry & Feed AI Context simultaneously
+                await self.telemetry_buffer.push(normalized_event)
+                await self.context_queue.put(("cv_state", normalized_event))
+                
+            except ValidationError as e:
+                print(f"Validation error on CV stream: {e}")
+
+    async def listen_stt_stream(self):
+        """Listens to ZeroMQ Push/Pull stream from container-stt"""
+        while True:
+            raw_data = await self.stt_pull_socket.recv_json()
+            try:
+                # 1. Normalize and validate
+                normalized_event = IntentPayload(**raw_data)
+                
+                # 2. Fan-out: Forward intent to Context Builder
+                await self.context_queue.put(("user_intent", normalized_event))
+                
+            except ValidationError as e:
+                print(f"Validation error on STT stream: {e}")
+
+    async def handle_rest_or_websocket_event(self, raw_payload: dict):
+        """Called by FastAPI Web Gateway for UI/REST actions"""
+        try:
+            # Normalize REST/WS payload
+            normalized_event = IntentPayload(**raw_payload)
+            await self.context_queue.put(("ui_event", normalized_event))
+        except ValidationError as e:
+            print(f"Invalid REST payload: {e}")
+
+    async def start(self):
+        """Runs all protocol listeners concurrently in an async event loop"""
+        await self.initialize_sockets()
+        print("EventRouter started. Listening to multi-protocol streams...")
+        
+        # Run background listeners concurrently
+        await asyncio.gather(
+            self.listen_cv_stream(),
+            self.listen_stt_stream()
+        )
