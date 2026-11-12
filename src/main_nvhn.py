@@ -173,7 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--db-path",
-        help="SQLite database path (default: root/tests/db_test/edge_system.db)",
+        help="SQLite database path (default: src/tests/db_test/edge_system.db)",
     )
     parser.add_argument("--ipc-dir", help="ZeroMQ IPC directory (default: /tmp/eaa)")
     parser.add_argument(
