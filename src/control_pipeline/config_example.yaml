@@ -1,0 +1,30 @@
+# ==============================================================================
+# EAA Orchestrator Standalone Block Configuration
+# ==============================================================================
+
+# FSM Configuration
+anti_flap_lockout_s: 5.0     # Minimum interval (seconds) between successive START commands
+initial_state: "idle"        # Starting state: idle, running, paused, jammed, safety_fault, recovering
+
+# Safety Invariant Arbiter Thresholds
+max_current_ma: 2500.0       # Current limit in mA (Invariant I-3)
+max_temp_celsius: 80.0       # Temperature threshold in Celsius
+min_speed_mms: 50            # Minimum permitted conveyor speed setpoint (mm/s)
+max_speed_mms: 500           # Maximum permitted conveyor speed setpoint (mm/s)
+min_stt_confidence: 0.80     # Minimum voice confidence threshold for STT intents
+max_intent_age_ms: 2000      # Max speech intent freshness window in ms
+
+# B-03 Protocol Bridge Timers
+heartbeat_interval_s: 0.1    # MPU -> MCU heartbeat interval (100 ms)
+hello_retry_interval_s: 0.5  # Handshake retry period
+stale_threshold_ms: 250.0    # Telemetry latency threshold for STALE status
+lost_threshold_ms: 500.0     # Telemetry timeout for LOST status -> SAFETY_FAULT
+default_ttl_ms: 500          # Command time-to-live before expiration
+
+# Transport Options ("mock" | "pipe" | "socket")
+transport_profile: "mock"
+socket_path: "/var/run/arduino-router.sock"  # Profile A (Arduino Router Bridge)
+uart_device: "/dev/ttyHS1"                  # Profile B (Raw UART with COBS)
+uart_baud: 115200
+
+log_level: "INFO"

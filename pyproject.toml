@@ -44,8 +44,8 @@ packages = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 asyncio_default_test_loop_scope = "function"
-testpaths = ["src/tests/unit_tests"]
-pythonpath = ["src"]
+testpaths = ["src/event_pipeline/tests/unit_tests", "src/control_pipeline/tests"]
+pythonpath = ["src", "src/event_pipeline", "src/control_pipeline"]
 addopts = "-ra"
 
 [tool.ruff]

@@ -11,3 +11,6 @@ data/
 *.db-wal
 *.db-shm
 *.ipc
+suggestion/
+context (not absolute truth)/
+architecture/
