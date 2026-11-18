@@ -253,6 +253,16 @@ async def test_listener_survives_invalid_message(tmp_path) -> None:
         await router.stop()
 
 
+async def test_ipc_path_length_is_rejected(tmp_path) -> None:
+    endpoints = RouterEndpoints.default(tmp_path / ("x" * 80))
+    router = EventRouter(FakeSink(), endpoints=endpoints)
+    try:
+        with pytest.raises(RuntimeError, match="too long"):
+            await router.start()
+    finally:
+        await router.stop()
+
+
 async def test_second_router_requires_exclusive_lock(tmp_path) -> None:
     endpoints = RouterEndpoints.default(tmp_path / "ipc")
     first = EventRouter(FakeSink(), endpoints=endpoints)

@@ -41,6 +41,59 @@ async def test_wal_mode_schema_version_and_health(db_path) -> None:
         await database.close()  # idempotent
 
 
+async def test_wear_pragmas_and_source_index_removed(db_path) -> None:
+    database = Database(db_path, journal_size_limit_bytes=123_456)
+    await database.connect()
+    try:
+        cursor = await database.connection.execute("PRAGMA temp_store")
+        assert (await cursor.fetchone())[0] == 2
+        await cursor.close()
+        cursor = await database.connection.execute("PRAGMA secure_delete")
+        assert (await cursor.fetchone())[0] == 0
+        await cursor.close()
+        cursor = await database.connection.execute("PRAGMA auto_vacuum")
+        assert (await cursor.fetchone())[0] == 0
+        await cursor.close()
+        cursor = await database.connection.execute("PRAGMA journal_size_limit")
+        assert (await cursor.fetchone())[0] == 123_456
+        await cursor.close()
+
+        cursor = await database.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            ("ix_events_source_time",),
+        )
+        assert await cursor.fetchone() is None
+        await cursor.close()
+    finally:
+        await database.close()
+
+
+async def test_v1_database_migrates_and_drops_source_index(db_path) -> None:
+    database = Database(db_path)
+    await database.connect()
+    await database.connection.execute(
+        "CREATE INDEX ix_events_source_time ON telemetry_events(source, event_time)"
+    )
+    await database.connection.execute("PRAGMA user_version=1")
+    await database.connection.commit()
+    await database.close()
+
+    migrated = Database(db_path)
+    await migrated.connect()
+    try:
+        cursor = await migrated.connection.execute("PRAGMA user_version")
+        assert int((await cursor.fetchone())[0]) == SCHEMA_VERSION
+        await cursor.close()
+        cursor = await migrated.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            ("ix_events_source_time",),
+        )
+        assert await cursor.fetchone() is None
+        await cursor.close()
+    finally:
+        await migrated.close()
+
+
 async def test_bulk_insert_roundtrip(repository: TelemetryRepository) -> None:
     events = [
         make_sensor_event(sequence=0, event_time=epoch(0)),
@@ -88,6 +141,17 @@ async def test_fetch_recent_filters_and_ordering(repository: TelemetryRepository
     assert len(intents) == 1
     assert intents[0].event_type is EventType.STT_INTENT
 
+    assert await repository.fetch_recent(limit=10, source=EventSource.CV) == []
+    assert await repository.fetch_recent(limit=10, source=EventSource.SYSTEM) == []
+    assert (
+        await repository.fetch_recent(
+            limit=10,
+            source=EventSource.STT,
+            event_type=EventType.UI_COMMAND,
+        )
+        == []
+    )
+
     windowed = await repository.fetch_recent(limit=10, since=epoch(1), until=epoch(2))
     assert [event.event_time for event in windowed] == [epoch(1), epoch(2)]
 
@@ -104,6 +168,14 @@ async def test_prune_by_max_rows(repository: TelemetryRepository) -> None:
     assert await repository.count() == 2
     remaining = await repository.fetch_recent(limit=10)
     assert [event.sequence for event in remaining] == [3, 4]
+
+
+async def test_prune_keeps_all_rows_when_under_limit(repository: TelemetryRepository) -> None:
+    for index in range(3):
+        await repository.bulk_insert([make_sensor_event(sequence=index, event_time=epoch(index))])
+
+    assert await repository.prune(max_rows=10) == 0
+    assert await repository.count() == 3
 
 
 async def test_prune_by_age(db_path) -> None:
@@ -136,7 +208,7 @@ async def test_prune_validation(repository: TelemetryRepository) -> None:
 async def test_newer_schema_version_is_refused(db_path) -> None:
     database = Database(db_path)
     await database.connect()
-    await database.connection.execute("PRAGMA user_version=2")
+    await database.connection.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
     await database.connection.commit()
     await database.close()
 
@@ -206,6 +278,26 @@ async def test_worker_drops_batch_after_retry_exhaustion() -> None:
     try:
         await worker.submit(make_sensor_event())
         await wait_until(lambda: worker.stats().failed_batches == 1)
+    finally:
+        await worker.stop()
+
+    assert fake.events == []
+    assert worker.stats().rows_inserted == 0
+
+
+async def test_worker_drops_batch_when_disk_is_low() -> None:
+    fake = FakeRepository(free_bytes_value=10)
+    worker = HalfSyncHalfAsyncPersistenceWorker(
+        fake,
+        batch_size=1,
+        flush_interval=0.05,
+        retry_backoff=0.01,
+        min_free_bytes=100,
+    )
+    await worker.start()
+    try:
+        assert await worker.submit(make_sensor_event()) is SubmitOutcome.QUEUED
+        await wait_until(lambda: worker.stats().dropped_low_disk == 1)
     finally:
         await worker.stop()
 
@@ -301,6 +393,8 @@ async def test_worker_argument_validation() -> None:
         HalfSyncHalfAsyncPersistenceWorker(FakeRepository(), flush_interval=0)
     with pytest.raises(ValueError):
         HalfSyncHalfAsyncPersistenceWorker(FakeRepository(), max_retries=-1)
+    with pytest.raises(ValueError):
+        HalfSyncHalfAsyncPersistenceWorker(FakeRepository(), min_free_bytes=-1)
 
 
 async def test_real_repository_with_worker(repository: TelemetryRepository) -> None:

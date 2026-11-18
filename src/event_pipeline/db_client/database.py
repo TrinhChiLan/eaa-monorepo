@@ -8,11 +8,13 @@ low-level design document and makes migrations independently testable.
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 from pathlib import Path
 
 import aiosqlite
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
@@ -34,18 +36,26 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
 _INDEX_STATEMENTS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_events_event_time ON telemetry_events(event_time)",
     "CREATE INDEX IF NOT EXISTS ix_events_type_time ON telemetry_events(event_type, event_time)",
-    "CREATE INDEX IF NOT EXISTS ix_events_source_time ON telemetry_events(source, event_time)",
 )
 
 
 class Database:
     """A WAL-mode SQLite database with explicit, idempotent initialization."""
 
-    def __init__(self, path: str | Path, *, busy_timeout_ms: int = 5000) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        busy_timeout_ms: int = 5000,
+        journal_size_limit_bytes: int = 4_194_304,
+    ) -> None:
         if busy_timeout_ms <= 0:
             raise ValueError("busy_timeout_ms must be positive")
+        if journal_size_limit_bytes <= 0:
+            raise ValueError("journal_size_limit_bytes must be positive")
         self._path = str(path)
         self._busy_timeout_ms = busy_timeout_ms
+        self._journal_size_limit_bytes = journal_size_limit_bytes
         self._connection: aiosqlite.Connection | None = None
         self._logger = logging.getLogger(__name__)
 
@@ -59,14 +69,26 @@ class Database:
             raise RuntimeError("Database is not connected; call connect() first")
         return self._connection
 
+    def free_bytes(self) -> int | None:
+        """Return free bytes on the database volume, or ``None`` when unknowable."""
+        if self._path.startswith((":memory:", "file:")):
+            return None
+        try:
+            parent = Path(self._path).expanduser().resolve().parent
+            return shutil.disk_usage(parent).free
+        except OSError:
+            self._logger.debug("Could not determine database free space", exc_info=True)
+            return None
+
     async def connect(self) -> None:
         if self._connection is not None:
             return
 
         if not self._path.startswith((":memory:", "file:")):
-            Path(self._path).expanduser().resolve().parent.mkdir(  # noqa: ASYNC240
-                parents=True, exist_ok=True
-            )
+            parent = Path(self._path).expanduser().resolve().parent  # noqa: ASYNC240
+            parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if not os.access(parent, os.W_OK):
+                raise RuntimeError(f"Database directory is not writable: {parent}")
 
         connection = await aiosqlite.connect(self._path, isolation_level=None)
         try:
@@ -76,10 +98,20 @@ class Database:
             await connection.close()
             raise
         self._connection = connection
+        if not self._path.startswith((":memory:", "file:")):
+            try:
+                os.chmod(self._path, 0o600)
+            except OSError:  # pragma: no cover - unusual filesystem
+                self._logger.debug("Could not restrict database file permissions", exc_info=True)
 
     async def _apply_pragmas(self, connection: aiosqlite.Connection) -> None:
         await connection.execute(f"PRAGMA busy_timeout={int(self._busy_timeout_ms)}")
         await connection.execute("PRAGMA foreign_keys=ON")
+        # Edge/wear pragmas: no deleted-content overwrite, no page-moving
+        # auto-vacuum, and temp work in memory rather than a temp file.
+        await connection.execute("PRAGMA temp_store=MEMORY")
+        await connection.execute("PRAGMA secure_delete=OFF")
+        await connection.execute("PRAGMA auto_vacuum=NONE")
 
         cursor = await connection.execute("PRAGMA journal_mode=WAL")
         row = await cursor.fetchone()
@@ -93,6 +125,7 @@ class Database:
 
         await connection.execute("PRAGMA synchronous=NORMAL")
         await connection.execute("PRAGMA wal_autocheckpoint=1000")
+        await connection.execute(f"PRAGMA journal_size_limit={int(self._journal_size_limit_bytes)}")
 
     async def _migrate(self, connection: aiosqlite.Connection) -> None:
         cursor = await connection.execute("PRAGMA user_version")
@@ -105,6 +138,10 @@ class Database:
                 f"Database schema version {version} is newer than supported version "
                 f"{SCHEMA_VERSION}; refusing to open {self._path}"
             )
+
+        if version < 2:
+            # v2 removes the source/time index: source and event_type are 1:1.
+            await connection.execute("DROP INDEX IF EXISTS ix_events_source_time")
 
         for statement in _SCHEMA_STATEMENTS + _INDEX_STATEMENTS:
             await connection.execute(statement)
@@ -130,6 +167,12 @@ class Database:
             return
         connection = self._connection
         self._connection = None
+        try:
+            # Truncate the WAL on a clean stop so the next start begins with a
+            # small file; this is a space control, not a write reduction.
+            await connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            self._logger.debug("WAL checkpoint failed during shutdown", exc_info=True)
         try:
             await connection.execute("PRAGMA optimize")
         except Exception:

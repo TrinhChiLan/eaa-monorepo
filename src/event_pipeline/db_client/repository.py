@@ -32,6 +32,15 @@ _SELECT_COLUMNS = """
 
 _STOP = object()
 
+# source and event_type are 1:1 in the current contract, so source filters can
+# use the (event_type, event_time) index instead of a redundant source index.
+_SOURCE_EVENT_TYPES: dict[EventSource, EventType] = {
+    EventSource.CV: EventType.CV_FRAME,
+    EventSource.STT: EventType.STT_INTENT,
+    EventSource.SENSOR: EventType.SENSOR_SNAPSHOT,
+    EventSource.UI: EventType.UI_COMMAND,
+}
+
 
 class TelemetryRepository:
     """All SQL for the ``telemetry_events`` table."""
@@ -43,6 +52,10 @@ class TelemetryRepository:
 
     async def initialize(self) -> None:
         await self._database.connect()
+
+    def free_bytes(self) -> int | None:
+        """Free bytes on the database volume, or ``None`` when unknowable."""
+        return self._database.free_bytes()
 
     async def bulk_insert(self, events: Sequence[EventEnvelope]) -> int:
         if not events:
@@ -87,14 +100,20 @@ class TelemetryRepository:
         if limit <= 0:
             return []
 
+        if source is not None:
+            mapped_type = _SOURCE_EVENT_TYPES.get(source)
+            if mapped_type is None:
+                # No system event type exists in this slice.
+                return []
+            if event_type is not None and event_type is not mapped_type:
+                return []
+            event_type = mapped_type
+
         clauses: list[str] = []
         params: list[object] = []
         if event_type is not None:
             clauses.append("event_type = ?")
             params.append(event_type.value)
-        if source is not None:
-            clauses.append("source = ?")
-            params.append(source.value)
         if since is not None:
             clauses.append("event_time >= ?")
             params.append(since)
@@ -166,13 +185,16 @@ class TelemetryRepository:
                         "DELETE FROM telemetry_events WHERE event_time < ?", (cutoff,)
                     )
                 if max_rows is not None:
+                    # Keep the newest max_rows by insertion id.  The subquery
+                    # returns the first id to delete (the N+1-th newest); when
+                    # the table is small it returns NULL and nothing is deleted.
                     await connection.execute(
                         """
                         DELETE FROM telemetry_events
-                        WHERE id NOT IN (
+                        WHERE id <= (
                             SELECT id FROM telemetry_events
                             ORDER BY id DESC
-                            LIMIT ?
+                            LIMIT 1 OFFSET ?
                         )
                         """,
                         (max_rows,),
@@ -218,6 +240,7 @@ class HalfSyncHalfAsyncPersistenceWorker:
         retry_backoff: float = 0.25,
         persist_event_types: frozenset[EventType] | None = None,
         retention: RetentionPolicy | None = None,
+        min_free_bytes: int = 0,
         logger: logging.Logger | None = None,
     ) -> None:
         if queue_capacity <= 0:
@@ -230,6 +253,8 @@ class HalfSyncHalfAsyncPersistenceWorker:
             raise ValueError("max_retries cannot be negative")
         if retry_backoff < 0:
             raise ValueError("retry_backoff cannot be negative")
+        if min_free_bytes < 0:
+            raise ValueError("min_free_bytes cannot be negative")
 
         self._repository = repository
         self._queue_capacity = queue_capacity
@@ -239,6 +264,7 @@ class HalfSyncHalfAsyncPersistenceWorker:
         self._retry_backoff = retry_backoff
         self._persist_event_types = persist_event_types
         self._retention = retention if retention is not None and retention.enabled else None
+        self._min_free_bytes = min_free_bytes
         self._logger = logger or logging.getLogger(__name__)
 
         self._queue: asyncio.Queue[EventEnvelope | object] = asyncio.Queue(maxsize=queue_capacity)
@@ -254,6 +280,8 @@ class HalfSyncHalfAsyncPersistenceWorker:
         self._rows_inserted = 0
         self._failed_batches = 0
         self._pruned_rows = 0
+        self._dropped_low_disk = 0
+        self._last_low_disk_log_at: float | None = None
         self._unflushed_on_shutdown = 0
         self._last_flush_at: float | None = None
         self._last_prune_at: float | None = None
@@ -359,6 +387,7 @@ class HalfSyncHalfAsyncPersistenceWorker:
             unflushed_on_shutdown=self._unflushed_on_shutdown,
             last_flush_at=self._last_flush_at,
             running=running,
+            dropped_low_disk=self._dropped_low_disk,
         )
 
     # ------------------------------------------------------------------
@@ -436,6 +465,20 @@ class HalfSyncHalfAsyncPersistenceWorker:
                     self._queue.task_done()
 
     async def _persist_batch(self, batch: list[EventEnvelope]) -> None:
+        if self._min_free_bytes > 0:
+            free = self._repository.free_bytes()
+            if free is not None and free < self._min_free_bytes:
+                self._dropped_low_disk += len(batch)
+                now = time.monotonic()
+                if self._last_low_disk_log_at is None or now - self._last_low_disk_log_at >= 60.0:
+                    self._logger.error(
+                        "Low disk space: dropping telemetry batch (free=%d, required=%d)",
+                        free,
+                        self._min_free_bytes,
+                    )
+                    self._last_low_disk_log_at = now
+                return
+
         for attempt in range(self._max_retries + 1):
             try:
                 inserted = await self._repository.bulk_insert(batch)

@@ -19,6 +19,8 @@ def test_settings_defaults() -> None:
     assert settings.retention is not None
     assert settings.retention.max_rows == 1_000_000
     assert settings.retention.max_age_seconds == 7 * 86_400
+    assert settings.db_journal_size_limit_bytes == 4_194_304
+    assert settings.min_free_bytes == 0
     assert settings.db_path == DEFAULT_DB_PATH
     assert settings.db_path.name == "edge_system.db"
     assert settings.db_path.parent.name == "db_test"
@@ -38,6 +40,8 @@ def test_settings_overrides_and_disabled_retention() -> None:
             "EAA_RETENTION_MAX_AGE_DAYS": "0",
             "EAA_PERSIST_CV_FRAMES": "1",
             "EAA_MAX_MESSAGE_BYTES": "4096",
+            "EAA_DB_JOURNAL_LIMIT_BYTES": "8192",
+            "EAA_MIN_FREE_BYTES": "4096",
             "EAA_LOG_LEVEL": "debug",
         }
     )
@@ -51,6 +55,8 @@ def test_settings_overrides_and_disabled_retention() -> None:
     assert settings.retention is None
     assert EventType.CV_FRAME in settings.persist_event_types
     assert settings.max_message_bytes == 4096
+    assert settings.db_journal_size_limit_bytes == 8192
+    assert settings.min_free_bytes == 4096
     assert settings.log_level == "DEBUG"
 
 
@@ -69,3 +75,7 @@ def test_settings_validation() -> None:
         Settings(**base, flush_interval=0)
     with pytest.raises(ValueError):
         Settings(**base, max_retries=-1)
+    with pytest.raises(ValueError):
+        Settings(**base, db_journal_size_limit_bytes=0)
+    with pytest.raises(ValueError):
+        Settings(**base, min_free_bytes=-1)
