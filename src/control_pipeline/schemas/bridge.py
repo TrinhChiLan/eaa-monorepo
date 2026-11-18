@@ -69,6 +69,12 @@ class McuEventKind(enum.IntEnum):
     BOOT = 0x0B
     """MCU completed its boot sequence."""
 
+    VOICE_WAKE = 0x0C
+    """MCU keyword spotter detected wake phrase."""
+
+    VOICE_STOP = 0x0D
+    """MCU keyword spotter detected spoken stop command."""
+
 
 class LinkState(str, enum.Enum):
     """Serial-link state maintained by the bridge worker."""
@@ -173,7 +179,7 @@ class HelloAckFrame(BaseModel):
 
     Attributes:
         proto_ver:    Protocol version the MCU supports.
-        mcu_boot_id:  Random boot identifier (changes on each MCU reset).
+        mcu_boot_id:  Random 16-bit boot identifier (changes on each MCU reset).
         fw_ver:       Firmware version word.
         mcu_state:    :class:`McuState` at boot time.
         fault_reason: Any pre-existing fault code (0 = none).
@@ -186,6 +192,36 @@ class HelloAckFrame(BaseModel):
     fw_ver: int
     mcu_state: McuState
     fault_reason: int
+
+
+class VoiceEventKind(enum.IntEnum):
+    """Kind discriminator for 0x93 VOICE_EVENT frames."""
+
+    WAKE = 0
+    """Wake phrase detected; command window open."""
+
+    STOP = 1
+    """Spoken stop detected; belt stopped autonomously by MCU."""
+
+
+class VoiceEventFrame(BaseModel):
+    """Decoded VOICE_EVENT frame (0x93) from the MCU front-end keyword spotter.
+
+    Attributes:
+        kind:            0 = WAKE, 1 = STOP.
+        confidence_pct:  Detection confidence percentage (0-100).
+        event_seq:       Event sequence number for EVENT_ACK correlation.
+        mcu_state:       :class:`McuState` at the time of the event.
+        model_ver:       Keyword spotter model version.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: int
+    confidence_pct: int
+    event_seq: int
+    mcu_state: McuState
+    model_ver: int
 
 
 # ---------------------------------------------------------------------------

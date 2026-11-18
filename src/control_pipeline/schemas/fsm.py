@@ -38,6 +38,7 @@ class FsmTrigger(str, enum.Enum):
     JAM_DETECTED = "jam_detected"
     VERIFY_CLEARANCE = "verify_clearance"
     FAULT_CLEARED = "fault_cleared"
+    MCU_VOICE_STOP = "mcu_voice_stop"
     SAFETY_EVENT = "safety_event"
     LINK_LOST = "link_lost"
     BOOT = "boot"

@@ -8,7 +8,13 @@ import pytest
 from control_pipeline.bridge.mock_mcu import MockMcu
 from control_pipeline.bridge.transport import MockMcuTransport
 from control_pipeline.bridge.worker import McuBridgeWorker
-from control_pipeline.schemas.bridge import LinkState, McuEventFrame, McuEventKind, TelemetryFrame
+from control_pipeline.schemas.bridge import (
+    LinkState,
+    McuEventFrame,
+    McuEventKind,
+    TelemetryFrame,
+    VoiceEventFrame,
+)
 from control_pipeline.schemas.fsm import Action
 
 
@@ -150,3 +156,35 @@ async def test_link_loss_detection():
         assert link_lost_called is True
     finally:
         await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_voice_event_received_and_acked():
+    """Verify B-03 v1.1 0x93 VOICE_EVENT is decoded, triggers EVENT_ACK, and calls listener."""
+    mpu_tr, mcu_tr = MockMcuTransport.linked_pair()
+    mock = MockMcu(mcu_tr)
+    voice_events: list[VoiceEventFrame] = []
+
+    async def on_voice_event(ve: VoiceEventFrame) -> None:
+        voice_events.append(ve)
+
+    worker = McuBridgeWorker(mpu_tr, voice_event_listener=on_voice_event)
+
+    await mock.start()
+    await worker.start()
+
+    try:
+        await asyncio.sleep(0.2)
+        # Mock MCU emits spoken stop (kind=1)
+        mock.emit_voice_event(kind=1, confidence_pct=95, model_ver=0x0100)
+        await asyncio.sleep(0.2)
+
+        assert len(voice_events) >= 1
+        assert voice_events[0].kind == 1
+        assert voice_events[0].confidence_pct == 95
+        assert worker.health.event_acks_sent >= 1
+        # Belt is autonomously stopped on MCU
+        assert mock.mcu_state.name == "STOPPED"
+    finally:
+        await worker.stop()
+        await mock.stop()

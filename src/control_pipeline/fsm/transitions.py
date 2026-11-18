@@ -35,6 +35,7 @@ TRANSITION_TABLE: dict[tuple[SystemState, FsmTrigger], SystemState] = {
 
     # --- RUNNING --------------------------------------------------------------
     (SystemState.RUNNING, FsmTrigger.STOP_CMD):     SystemState.IDLE,
+    (SystemState.RUNNING, FsmTrigger.MCU_VOICE_STOP): SystemState.IDLE,
     (SystemState.RUNNING, FsmTrigger.PAUSE_CMD):    SystemState.PAUSED,
     # SET_SPEED_CMD: self-transition — state unchanged; setpoint passed via payload.
     (SystemState.RUNNING, FsmTrigger.SET_SPEED_CMD): SystemState.RUNNING,
@@ -46,6 +47,7 @@ TRANSITION_TABLE: dict[tuple[SystemState, FsmTrigger], SystemState] = {
     # --- PAUSED ---------------------------------------------------------------
     (SystemState.PAUSED, FsmTrigger.RESUME_CMD):    SystemState.RUNNING,
     (SystemState.PAUSED, FsmTrigger.STOP_CMD):      SystemState.IDLE,
+    (SystemState.PAUSED, FsmTrigger.MCU_VOICE_STOP): SystemState.IDLE,
     (SystemState.PAUSED, FsmTrigger.SAFETY_EVENT):  SystemState.SAFETY_FAULT,
     (SystemState.PAUSED, FsmTrigger.LINK_LOST):     SystemState.SAFETY_FAULT,
     (SystemState.PAUSED, FsmTrigger.BOOT):          SystemState.IDLE,

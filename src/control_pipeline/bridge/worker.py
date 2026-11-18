@@ -1,11 +1,11 @@
-"""worker.py — McuBridgeWorker for B-03 v1.0 protocol.
+"""worker.py — McuBridgeWorker for B-03 v1.1 protocol.
 
 Manages MPU-side communications:
 - Handshake with MCU via HELLO / HELLO_ACK
 - Heartbeat loop at 100 ms while link is healthy
 - Link state tracking (DOWN -> SYNC -> UP -> STALE -> LOST)
 - Ingestion of 20 Hz TELEMETRY frames and dispatch to telemetry_listener
-- Ingestion of unsolicited MCU events, sending EVENT_ACK and calling mcu_event_listener
+- Ingestion of unsolicited MCU events (0x91 EVENT, 0x93 VOICE_EVENT), sending EVENT_ACK
 - Reliable command transmission with cmd_id, ttl_ms, and CMD_ACK confirmation
 - Conversion of live telemetry into a SensorReading for the SafetyInvariantArbiter
 """
@@ -30,6 +30,7 @@ from control_pipeline.schemas.bridge import (
     McuEventFrame,
     McuState,
     TelemetryFrame,
+    VoiceEventFrame,
 )
 from control_pipeline.schemas.fsm import Action
 
@@ -43,6 +44,7 @@ class McuBridgeWorker:
         *,
         telemetry_listener: Callable[[TelemetryFrame], Coroutine[Any, Any, None]] | None = None,
         mcu_event_listener: Callable[[McuEventFrame], Coroutine[Any, Any, None]] | None = None,
+        voice_event_listener: Callable[[VoiceEventFrame], Coroutine[Any, Any, None]] | None = None,
         link_lost_callback: Callable[[], Coroutine[Any, Any, None]] | None = None,
         heartbeat_interval_s: float = 0.1,
         hello_retry_interval_s: float = 0.5,
@@ -55,6 +57,7 @@ class McuBridgeWorker:
         self._transport = transport
         self._telemetry_listener = telemetry_listener
         self._mcu_event_listener = mcu_event_listener
+        self._voice_event_listener = voice_event_listener
         self._link_lost_callback = link_lost_callback
 
         self._heartbeat_interval_s = heartbeat_interval_s
@@ -338,6 +341,25 @@ class McuBridgeWorker:
                             await self._mcu_event_listener(ev)
                         except Exception:
                             self._logger.exception("MCU event listener error")
+
+            elif msg_type == codec.MT_VOICE_EVENT:
+                ve = codec.decode_voice_event(msg_type, seq, ack, tick_ms, flags, payload)
+                if ve:
+                    # Retransmitted until EVENT_ACK, like EVENT (v1.1 §3.3)
+                    ack_frame = codec.encode_event_ack(
+                        self._next_mpu_seq(),
+                        self._last_mcu_seq,
+                        self._tick_ms(),
+                        event_seq=ve.event_seq,
+                    )
+                    await self._transport.send(ack_frame)
+                    self._health.event_acks_sent += 1
+
+                    if self._voice_event_listener:
+                        try:
+                            await self._voice_event_listener(ve)
+                        except Exception:
+                            self._logger.exception("Voice event listener error")
 
     async def _hello_handshake_loop(self) -> None:
         """Retry sending HELLO until HELLO_ACK received."""

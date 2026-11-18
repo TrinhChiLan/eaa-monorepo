@@ -101,3 +101,62 @@ def test_oversized_payload_rejected():
             flags=0,
             payload=b"\x00" * 45,  # max is 40
         )
+
+
+def test_encode_decode_voice_event():
+    """Verify B-03 v1.1 0x93 VOICE_EVENT encoding and decoding."""
+    frame_bytes = codec.encode_voice_event(
+        seq=10,
+        ack=5,
+        tick_ms=12345,
+        flags=0x40,  # bit 6: FLAG_VOICE_ACTIVE
+        kind=0,  # WAKE
+        confidence_pct=92,
+        event_seq=1,
+        mcu_state=int(McuState.RUNNING),
+        model_ver=0x0100,
+    )
+    dec = codec.decode_frame(frame_bytes)
+    assert dec is not None
+    msg_type, seq, ack, tick_ms, flags, payload = dec
+    assert msg_type == codec.MT_VOICE_EVENT
+    assert seq == 10
+    assert ack == 5
+    assert flags == 0x40
+
+    ve = codec.decode_voice_event(msg_type, seq, ack, tick_ms, flags, payload)
+    assert ve is not None
+    assert ve.kind == 0
+    assert ve.confidence_pct == 92
+    assert ve.event_seq == 1
+    assert ve.mcu_state == McuState.RUNNING
+    assert ve.model_ver == 0x0100
+
+
+def test_hello_ack_v11_format():
+    """Verify B-03 v1.1 7-byte HELLO_ACK decoding with u16 boot_id."""
+    payload = struct.pack(
+        "<BHHBB",
+        codec.PROTO_VER,
+        0x1234,  # u16 mcu_boot_id
+        0x0101,  # u16 fw_ver
+        int(McuState.STOPPED),
+        0x00,
+    )
+    frame = codec.encode_frame(
+        msg_type=codec.MT_HELLO_ACK,
+        seq=1,
+        ack=1,
+        tick_ms=100,
+        flags=0x00,
+        payload=payload,
+    )
+    dec = codec.decode_frame(frame)
+    assert dec is not None
+    ha = codec.decode_hello_ack(*dec)
+    assert ha is not None
+    assert ha.proto_ver == codec.PROTO_VER
+    assert ha.mcu_boot_id == 0x1234
+    assert ha.fw_ver == 0x0101
+    assert ha.mcu_state == McuState.STOPPED
+    assert ha.fault_reason == 0

@@ -1,4 +1,4 @@
-"""codec.py — B-03 v1.0 binary frame encoder / decoder for the EAA control_pipeline.
+"""codec.py — B-03 v1.1 binary frame encoder / decoder for the EAA control_pipeline.
 
 Frame wire format (all multi-byte fields little-endian):
   Offset  Len  Field
@@ -33,6 +33,8 @@ from control_pipeline.schemas.bridge import (
     McuEventKind,
     McuState,
     TelemetryFrame,
+    VoiceEventFrame,
+    VoiceEventKind,
 )
 
 # ---------------------------------------------------------------------------
@@ -65,6 +67,7 @@ _MT_HELLO_ACK: Final[int] = 0x81
 _MT_TELEMETRY: Final[int] = 0x90
 _MT_MCU_EVENT: Final[int] = 0x91
 _MT_CMD_ACK: Final[int] = 0x92
+_MT_VOICE_EVENT: Final[int] = 0x93
 
 # Public message-type aliases
 MT_HELLO: Final[int] = _MT_HELLO
@@ -79,6 +82,7 @@ MT_HELLO_ACK: Final[int] = _MT_HELLO_ACK
 MT_TELEMETRY: Final[int] = _MT_TELEMETRY
 MT_MCU_EVENT: Final[int] = _MT_MCU_EVENT
 MT_CMD_ACK: Final[int] = _MT_CMD_ACK
+MT_VOICE_EVENT: Final[int] = _MT_VOICE_EVENT
 
 # Fixed frame header size (magic … length inclusive)
 _HEADER_SIZE: Final[int] = 12
@@ -613,16 +617,16 @@ def decode_hello_ack(
         A populated :class:`~control_pipeline.schemas.bridge.HelloAckFrame` or ``None``
         on type/length/value mismatch.
 
-    Payload layout (9 bytes, all LE):
+    Payload layout (7 bytes, all LE):
       u8  proto_ver
-      u32 mcu_boot_id
+      u16 mcu_boot_id
       u16 fw_ver
       u8  mcu_state
       u8  fault_reason
     """
     if msg_type != _MT_HELLO_ACK:
         return None
-    _HACK_FMT = "<BIHBB"
+    _HACK_FMT = "<BHHBB"
     if len(payload) < struct.calcsize(_HACK_FMT):
         return None
     proto_ver, mcu_boot_id, fw_ver, mcu_state_raw, fault_reason = struct.unpack_from(
@@ -638,6 +642,94 @@ def decode_hello_ack(
         fw_ver=fw_ver,
         mcu_state=mcu_state,
         fault_reason=fault_reason,
+    )
+
+
+def encode_voice_event(
+    seq: int,
+    ack: int,
+    tick_ms: int,
+    flags: int,
+    kind: int,
+    confidence_pct: int,
+    event_seq: int,
+    mcu_state: int,
+    model_ver: int,
+) -> bytes:
+    """Encode a VOICE_EVENT frame (0x93) (MCU → MPU).
+
+    Args:
+        seq:            Sender sequence number.
+        ack:            Last peer sequence number acknowledged.
+        tick_ms:        Sender tick counter in ms.
+        flags:          1-byte live-state flags bitmask.
+        kind:           Voice event kind (0 = WAKE, 1 = STOP).
+        confidence_pct: Detection confidence (0–100).
+        event_seq:      Event sequence number for EVENT_ACK tracking.
+        mcu_state:      :class:`~control_pipeline.schemas.bridge.McuState` byte.
+        model_ver:      Keyword spotter model version.
+
+    Returns:
+        Encoded frame bytes.
+    """
+    payload = struct.pack(
+        "<BBHBH",
+        kind & 0xFF,
+        confidence_pct & 0xFF,
+        event_seq & 0xFFFF,
+        mcu_state & 0xFF,
+        model_ver & 0xFFFF,
+    )
+    return encode_frame(_MT_VOICE_EVENT, seq, ack, tick_ms, flags, payload)
+
+
+def decode_voice_event(
+    msg_type: int,
+    seq: int,
+    ack: int,
+    tick_ms: int,
+    flags: int,
+    payload: bytes,
+) -> VoiceEventFrame | None:
+    """Decode a VOICE_EVENT frame (0x93) payload into a :class:`~control_pipeline.schemas.bridge.VoiceEventFrame`.
+
+    Args:
+        msg_type: Must equal ``0x93``; returns ``None`` otherwise.
+        seq:      Frame sequence number.
+        ack:      Frame ack field.
+        tick_ms:  MCU tick at event time.
+        flags:    Frame-header flags byte.
+        payload:  Raw payload bytes (expected 7 bytes).
+
+    Returns:
+        A populated :class:`~control_pipeline.schemas.bridge.VoiceEventFrame` or ``None``
+        on type/length/value mismatch.
+
+    Payload layout (7 bytes, all LE):
+      u8  kind (0=WAKE, 1=STOP)
+      u8  confidence_pct (0-100)
+      u16 event_seq
+      u8  mcu_state
+      u16 model_ver
+    """
+    if msg_type != _MT_VOICE_EVENT:
+        return None
+    _VE_FMT = "<BBHBH"
+    if len(payload) < struct.calcsize(_VE_FMT):
+        return None
+    kind, confidence_pct, event_seq, mcu_state_raw, model_ver = struct.unpack_from(
+        _VE_FMT, payload
+    )
+    try:
+        mcu_state = McuState(mcu_state_raw)
+    except ValueError:
+        return None
+    return VoiceEventFrame(
+        kind=kind,
+        confidence_pct=confidence_pct,
+        event_seq=event_seq,
+        mcu_state=mcu_state,
+        model_ver=model_ver,
     )
 
 

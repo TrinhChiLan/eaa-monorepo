@@ -145,3 +145,37 @@ async def test_observer_notified():
     assert len(spy.events) == 1
     assert spy.events[0].previous == SystemState.IDLE
     assert spy.events[0].current == SystemState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_mcu_voice_stop_from_running():
+    """Verify MCU_VOICE_STOP directly restores RUNNING to IDLE (v1.1)."""
+    engine = FSMEngine(initial_state=SystemState.RUNNING)
+    ev = FsmEvent(
+        trigger=FsmTrigger.MCU_VOICE_STOP,
+        origin="mcu",
+        payload={"kind": 1},
+        timestamp=time.time(),
+    )
+    res = await engine.process(ev)
+    assert res is not None
+    assert res.previous == SystemState.RUNNING
+    assert res.current == SystemState.IDLE
+    assert engine.state == SystemState.IDLE
+
+
+@pytest.mark.asyncio
+async def test_mcu_voice_stop_from_paused():
+    """Verify MCU_VOICE_STOP restores PAUSED to IDLE (v1.1)."""
+    engine = FSMEngine(initial_state=SystemState.PAUSED)
+    ev = FsmEvent(
+        trigger=FsmTrigger.MCU_VOICE_STOP,
+        origin="mcu",
+        payload={"kind": 1},
+        timestamp=time.time(),
+    )
+    res = await engine.process(ev)
+    assert res is not None
+    assert res.previous == SystemState.PAUSED
+    assert res.current == SystemState.IDLE
+    assert engine.state == SystemState.IDLE

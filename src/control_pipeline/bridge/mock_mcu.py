@@ -30,6 +30,7 @@ FLAG_HB_VALID: Final[int] = 1 << 2
 FLAG_FAULT_LATCHED: Final[int] = 1 << 3
 FLAG_MOTOR_ENABLED: Final[int] = 1 << 4
 FLAG_SENSORS_OK: Final[int] = 1 << 5
+FLAG_VOICE_ACTIVE: Final[int] = 1 << 6
 
 
 class MockMcu:
@@ -203,6 +204,40 @@ class MockMcu:
         self._pending_events[self._event_seq] = frame
         asyncio.create_task(self._send_raw(frame))
 
+    def emit_voice_event(
+        self,
+        kind: int,
+        confidence_pct: int = 95,
+        model_ver: int = 0x0100,
+    ) -> None:
+        """Queue and transmit a VOICE_EVENT frame (0x93).
+
+        For kind == 1 (STOP), the MCU stops the belt immediately (McuState.STOPPED)
+        before dispatching the frame, per v1.1 Section 2.4 / 3.3.
+        For kind == 0 (WAKE), sets FLAG_VOICE_ACTIVE in the flags bitmask.
+        """
+        if kind == 1:
+            self._mcu_state = McuState.STOPPED
+            self._flags &= ~FLAG_MOTOR_ENABLED
+            self._flags &= ~FLAG_VOICE_ACTIVE
+        elif kind == 0:
+            self._flags |= FLAG_VOICE_ACTIVE
+
+        self._event_seq = (self._event_seq + 1) & 0xFFFF
+        frame = codec.encode_voice_event(
+            seq=self._next_seq(),
+            ack=self._last_rx_seq,
+            tick_ms=self._tick_ms(),
+            flags=self._flags,
+            kind=kind,
+            confidence_pct=confidence_pct,
+            event_seq=self._event_seq,
+            mcu_state=int(self._mcu_state),
+            model_ver=model_ver,
+        )
+        self._pending_events[self._event_seq] = frame
+        asyncio.create_task(self._send_raw(frame))
+
     # ------------------------------------------------------------------
     # Frame reception loop
     # ------------------------------------------------------------------
@@ -235,13 +270,13 @@ class MockMcu:
 
     async def _handle_frame(self, msg_type: int, seq: int, payload: bytes) -> None:
         if msg_type == codec.MT_HELLO:
-            # Payload: proto_ver u8, session_id u16
-            proto_ver, session_id = struct.unpack_from("<BH", payload)
-            # HELLO_ACK payload: proto_ver u8, mcu_boot_id u32, fw_ver u16, mcu_state u8, fault_reason u8
+            # Payload: proto_ver u8, session_id u32
+            proto_ver, session_id = struct.unpack_from("<BI", payload)
+            # HELLO_ACK payload (v1.1): proto_ver u8, mcu_boot_id u16, fw_ver u16, mcu_state u8, fault_reason u8
             ack_payload = struct.pack(
-                "<BIHBB",
+                "<BHHBB",
                 codec.PROTO_VER,
-                self._boot_id,
+                self._boot_id & 0xFFFF,
                 self._fw_ver,
                 int(self._mcu_state),
                 self._fault_reason,
