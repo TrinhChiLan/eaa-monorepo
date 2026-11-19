@@ -50,6 +50,8 @@ class Settings:
     retention: RetentionPolicy | None = None
     persist_event_types: frozenset[EventType] = DEFAULT_PERSIST_EVENT_TYPES
     max_message_bytes: int = 1_048_576
+    db_journal_size_limit_bytes: int = 4_194_304
+    min_free_bytes: int = 0
     log_level: str = "INFO"
 
     def __post_init__(self) -> None:
@@ -65,6 +67,10 @@ class Settings:
             raise ValueError("max_retries cannot be negative")
         if self.max_message_bytes <= 0:
             raise ValueError("max_message_bytes must be positive")
+        if self.db_journal_size_limit_bytes <= 0:
+            raise ValueError("db_journal_size_limit_bytes must be positive")
+        if self.min_free_bytes < 0:
+            raise ValueError("min_free_bytes cannot be negative")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -102,6 +108,8 @@ class Settings:
             retention=retention,
             persist_event_types=frozenset(persist_types),
             max_message_bytes=_env_int(values, "EAA_MAX_MESSAGE_BYTES", 1_048_576),
+            db_journal_size_limit_bytes=_env_int(values, "EAA_DB_JOURNAL_LIMIT_BYTES", 4_194_304),
+            min_free_bytes=_env_int(values, "EAA_MIN_FREE_BYTES", 0),
             log_level=values.get("EAA_LOG_LEVEL", "INFO").upper(),
         )
 

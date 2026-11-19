@@ -31,13 +31,14 @@ TEST_HELPER_FILES := \
 	src/tests/unit_tests/__init__.py
 
 TEST_FILES := \
-	src/tests/unit_tests/test_config.py \
-	src/tests/unit_tests/test_events.py \
-	src/tests/unit_tests/test_integration.py \
-	src/tests/unit_tests/test_mocks.py \
-	src/tests/unit_tests/test_persistence.py \
-	src/tests/unit_tests/test_ring_buffer.py \
-	src/tests/unit_tests/test_router.py
+	src/event_pipeline/tests/unit_tests/test_config.py \
+	src/event_pipeline/tests/unit_tests/test_events.py \
+	src/event_pipeline/tests/unit_tests/test_integration.py \
+	src/event_pipeline/tests/unit_tests/test_main.py \
+	src/event_pipeline/tests/unit_tests/test_mocks.py \
+	src/event_pipeline/tests/unit_tests/test_persistence.py \
+	src/event_pipeline/tests/unit_tests/test_ring_buffer.py \
+	src/event_pipeline/tests/unit_tests/test_router.py
 
 PY_FILES := $(SOURCE_FILES) $(TEST_HELPER_FILES) $(TEST_FILES)
 

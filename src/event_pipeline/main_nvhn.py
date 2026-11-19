@@ -8,6 +8,7 @@ import logging
 import signal
 import sys
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 from db_client.database import Database
@@ -19,9 +20,91 @@ from event_router.event_router import EventRouter
 from mock_data.config import Settings
 from mock_data.constants.zmq_topics import RouterEndpoints
 from mock_data.schemas.events import EventType
+from mock_data.schemas.telemetry import PersistenceStats, RingBufferStats, RouterStats
 from telemetry_ring.ring_buffer import TelemetryRingBuffer
 
 LOGGER = logging.getLogger("eaa.main")
+
+
+def _format_event_time(value: float | None) -> str:
+    """Render an event timestamp as UTC, or ``n/a`` when no event has arrived."""
+    if value is None:
+        return "n/a"
+    rendered = datetime.fromtimestamp(value, tz=UTC).isoformat(timespec="milliseconds")
+    return rendered.replace("+00:00", "Z")
+
+
+def _format_stats(
+    title: str,
+    router_stats: RouterStats,
+    ring_stats: RingBufferStats,
+    persistence_stats: PersistenceStats,
+) -> str:
+    """Format the three module stat snapshots as one readable, grouped block."""
+    return "\n".join(
+        (
+            title,
+            (
+                "  router       "
+                f"received={router_stats.received}  emitted={router_stats.emitted}  "
+                f"invalid={router_stats.invalid}  oversized={router_stats.oversized}  "
+                f"unknown_topic={router_stats.unknown_topic}"
+            ),
+            (
+                "               "
+                f"handler_errors={router_stats.handler_errors}  "
+                f"socket_errors={router_stats.socket_errors}  "
+                f"sink_errors={router_stats.sink_errors}  "
+                f"last_event_at={_format_event_time(router_stats.last_event_at)}"
+            ),
+            (
+                "  ring         "
+                f"size={ring_stats.size}/{ring_stats.capacity}  "
+                f"total_pushed={ring_stats.total_pushed}  evicted={ring_stats.evicted}"
+            ),
+            (
+                "               "
+                f"persistence_queued={ring_stats.persistence_queued}  "
+                f"persistence_filtered={ring_stats.persistence_filtered}"
+            ),
+            (
+                "               "
+                f"persistence_dropped={ring_stats.persistence_dropped}  "
+                f"persistence_errors={ring_stats.persistence_errors}"
+            ),
+            (
+                "               "
+                f"oldest_event_at={_format_event_time(ring_stats.oldest_event_time)}  "
+                f"newest_event_at={_format_event_time(ring_stats.newest_event_time)}"
+            ),
+            (
+                "  persistence  "
+                f"queue={persistence_stats.queue_size}/{persistence_stats.queue_capacity}  "
+                f"submitted={persistence_stats.submitted}  "
+                f"queued={persistence_stats.queued}  "
+                f"filtered={persistence_stats.filtered}"
+            ),
+            (
+                "               "
+                f"dropped_queue_full={persistence_stats.dropped_queue_full}  "
+                f"stopped_rejected={persistence_stats.stopped_rejected}  "
+                f"batches_flushed={persistence_stats.batches_flushed}"
+            ),
+            (
+                "               "
+                f"dropped_low_disk={persistence_stats.dropped_low_disk}  "
+                f"rows_inserted={persistence_stats.rows_inserted}  "
+                f"failed_batches={persistence_stats.failed_batches}  "
+                f"pruned_rows={persistence_stats.pruned_rows}"
+            ),
+            (
+                "               "
+                f"last_flush_at={_format_event_time(persistence_stats.last_flush_at)}  "
+                f"unflushed_on_shutdown={persistence_stats.unflushed_on_shutdown}  "
+                f"running={str(persistence_stats.running).lower()}"
+            ),
+        )
+    )
 
 
 def _configure_logging(level: str) -> None:
@@ -63,10 +146,13 @@ async def _log_stats_loop(
     while True:
         await asyncio.sleep(interval)
         LOGGER.info(
-            "router=%s ring=%s persistence=%s",
-            router.stats(),
-            await buffer.stats(),
-            worker.stats(),
+            "%s",
+            _format_stats(
+                "Runtime stats",
+                router.stats(),
+                await buffer.stats(),
+                worker.stats(),
+            ),
         )
 
 
@@ -77,7 +163,10 @@ async def run(
     stats_interval: float = 10.0,
 ) -> None:
     """Run the three modules until ``duration`` elapses or a signal arrives."""
-    database = Database(settings.db_path)
+    database = Database(
+        settings.db_path,
+        journal_size_limit_bytes=settings.db_journal_size_limit_bytes,
+    )
     repository = TelemetryRepository(database)
     worker: HalfSyncHalfAsyncPersistenceWorker | None = None
     buffer: TelemetryRingBuffer | None = None
@@ -87,6 +176,17 @@ async def run(
 
     try:
         await repository.initialize()
+        free_bytes = repository.free_bytes()
+        if (
+            settings.min_free_bytes > 0
+            and free_bytes is not None
+            and free_bytes < settings.min_free_bytes
+        ):
+            raise RuntimeError(
+                f"Insufficient free space for {settings.db_path}: "
+                f"{free_bytes} bytes available, {settings.min_free_bytes} required"
+            )
+
         worker = HalfSyncHalfAsyncPersistenceWorker(
             repository,
             queue_capacity=settings.persistence_queue_capacity,
@@ -95,6 +195,7 @@ async def run(
             max_retries=settings.max_retries,
             persist_event_types=settings.persist_event_types,
             retention=settings.retention,
+            min_free_bytes=settings.min_free_bytes,
         )
         await worker.start()
 
@@ -143,10 +244,13 @@ async def run(
 
         if router is not None and buffer is not None and worker is not None:
             LOGGER.info(
-                "Final stats: router=%s ring=%s persistence=%s",
-                router.stats(),
-                await buffer.stats(),
-                worker.stats(),
+                "%s",
+                _format_stats(
+                    "Final stats",
+                    router.stats(),
+                    await buffer.stats(),
+                    worker.stats(),
+                ),
             )
 
 

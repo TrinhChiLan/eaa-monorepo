@@ -61,6 +61,7 @@ class PersistenceStats:
     unflushed_on_shutdown: int
     last_flush_at: float | None
     running: bool
+    dropped_low_disk: int = 0
 
 
 @dataclass(frozen=True)

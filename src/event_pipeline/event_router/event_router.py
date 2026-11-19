@@ -304,7 +304,20 @@ class EventRouter:
         for endpoint in endpoints.bind_endpoints + endpoints.connect_endpoints:
             if endpoint.startswith("ipc://"):
                 path = Path(endpoint[len("ipc://") :])
-                path.parent.mkdir(parents=True, exist_ok=True)
+                if len(str(path)) >= 100:
+                    raise RuntimeError(
+                        f"IPC socket path is too long ({len(str(path))} chars): {path}. "
+                        "Use a shorter EAA_IPC_DIR; Linux Unix-socket paths are ~107 chars."
+                    )
+                parent_existed = path.parent.exists()
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                if not parent_existed:
+                    try:
+                        os.chmod(path.parent, 0o700)
+                    except OSError:  # pragma: no cover - restricted filesystem
+                        self._logger.debug(
+                            "Could not restrict IPC directory permissions", exc_info=True
+                        )
 
     def _acquire_instance_lock(self, endpoints: RouterEndpoints) -> None:
         """Prevent two routers from sharing the same IPC directory.
@@ -325,6 +338,10 @@ class EventRouter:
             return
 
         fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError:  # pragma: no cover - unusual filesystem
+            self._logger.debug("Could not restrict router lock permissions", exc_info=True)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:

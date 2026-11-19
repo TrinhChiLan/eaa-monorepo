@@ -1,0 +1,35 @@
+[Unit]
+Description=EAA edge backend (router, ring buffer, SQLite persistence)
+After=network.target
+
+[Service]
+Type=simple
+User=eaa
+Group=eaa
+WorkingDirectory=/opt/eaa
+EnvironmentFile=/etc/eaa/eaa.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/eaa/.venv/bin/eaa-orchestrator --stats-interval 60
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=20
+SyslogIdentifier=eaa
+
+# Writable runtime/state only; the rest of the filesystem stays read-only.
+StateDirectory=eaa
+RuntimeDirectory=eaa
+ReadWritePaths=/var/lib/eaa /run/eaa
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LimitNOFILE=4096
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

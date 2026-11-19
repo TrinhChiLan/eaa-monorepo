@@ -119,12 +119,22 @@ class FakePersistence:
 class FakeRepository:
     """Duck-typed repository for worker tests (no SQLite)."""
 
-    def __init__(self, *, fail_times: int = 0, prune_result: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        fail_times: int = 0,
+        prune_result: int = 0,
+        free_bytes_value: int | None = None,
+    ) -> None:
         self.fail_times = fail_times
         self.calls = 0
         self.events: list[EventEnvelope] = []
         self.prune_calls: list[dict[str, Any]] = []
         self.prune_result = prune_result
+        self.free_bytes_value = free_bytes_value
+
+    def free_bytes(self) -> int | None:
+        return self.free_bytes_value
 
     async def bulk_insert(self, events: list[EventEnvelope]) -> int:
         self.calls += 1
