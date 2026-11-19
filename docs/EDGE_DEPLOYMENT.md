@@ -149,11 +149,10 @@ writable under `ProtectSystem=strict`.
 ## 6. Verification
 
 ```bash
-# Unit/integration tests and style
-cd eaa-monorepo
-.venv/bin/pytest -q
-.venv/bin/ruff check root
-.venv/bin/ruff format --check root
+# Unit/integration tests and style (run from the repository root)
+.venv/bin/pytest src/event_pipeline/tests -q
+.venv/bin/ruff check src/event_pipeline
+.venv/bin/ruff format --check src/event_pipeline
 
 # Database checks
 .venv/bin/python - <<'PY'

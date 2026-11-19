@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 import zmq
-
 from db_client.database import Database
 from db_client.repository import (
     HalfSyncHalfAsyncPersistenceWorker,

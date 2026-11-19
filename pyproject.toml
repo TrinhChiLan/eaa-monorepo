@@ -22,22 +22,24 @@ dev = [
 ]
 
 [project.scripts]
-eaa-orchestrator = "main_nvhn:cli"
-eaa-mock-feed = "tests.mock.feed:cli"
+eaa-orchestrator = "event_pipeline.main_nvhn:cli"
+eaa-mock-feed = "event_pipeline.tests.mock.feed:cli"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-py-modules = ["main_nvhn"]
+# Only the event pipeline is packaged from this branch; the event_pipeline
+# package __init__ keeps its internal flat imports resolvable.
 packages = [
-    "mock_data",
-    "mock_data.schemas",
-    "mock_data.constants",
-    "event_router",
-    "telemetry_ring",
-    "db_client",
-    "tests",
-    "tests.mock",
-    "tests.unit_tests",
+    "event_pipeline",
+    "event_pipeline.db_client",
+    "event_pipeline.event_router",
+    "event_pipeline.mock_data",
+    "event_pipeline.mock_data.constants",
+    "event_pipeline.mock_data.schemas",
+    "event_pipeline.telemetry_ring",
+    "event_pipeline.tests",
+    "event_pipeline.tests.mock",
+    "event_pipeline.tests.unit_tests",
 ]
 
 [tool.pytest.ini_options]

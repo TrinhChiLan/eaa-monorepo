@@ -235,9 +235,9 @@ explicit to prevent page-moving rewrites.
 ### Automated
 
 ```text
-pytest -q                 65 passed in ~1.7 s
-ruff check root           All checks passed
-ruff format --check root  30 files already formatted
+pytest src/event_pipeline/tests -q        65 passed in ~1.7 s
+ruff check src/event_pipeline             All checks passed
+ruff format --check src/event_pipeline    31 files already formatted
 ```
 
 ### Smoke test

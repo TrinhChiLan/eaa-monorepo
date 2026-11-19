@@ -15,7 +15,8 @@ DEFAULT_PERSIST_EVENT_TYPES: frozenset[EventType] = frozenset(
     {EventType.SENSOR_SNAPSHOT, EventType.STT_INTENT, EventType.UI_COMMAND}
 )
 
-# Local SQLite artifacts live under src/tests/db_test.  Resolve the path from
+# Local SQLite artifacts live under src/event_pipeline/tests/db_test.  Resolve
+# the path from
 # this module so the default is stable regardless of the process working
 # directory; EAA_DB_PATH still overrides it.
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "tests" / "db_test" / "edge_system.db"

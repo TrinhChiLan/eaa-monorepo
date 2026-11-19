@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-
 from db_client.database import Database
 from db_client.repository import TelemetryRepository
 

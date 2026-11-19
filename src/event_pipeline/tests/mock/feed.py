@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import zmq
-
 from mock_data.constants.zmq_topics import (
     TOPIC_CV_FRAME,
     TOPIC_SENSOR_SNAPSHOT,

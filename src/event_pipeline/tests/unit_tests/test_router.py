@@ -6,7 +6,6 @@ import time
 
 import pytest
 import zmq
-
 from event_router.event_router import EventRouter
 from mock_data.constants.zmq_topics import RouterEndpoints
 from mock_data.schemas.events import EventSource, EventType

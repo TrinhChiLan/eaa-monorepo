@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from mock_data.config import DEFAULT_DB_PATH, DEFAULT_PERSIST_EVENT_TYPES, Settings
 from mock_data.schemas.events import EventType
 

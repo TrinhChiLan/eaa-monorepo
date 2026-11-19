@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from mock_data.contracts import SubmitOutcome
 from telemetry_ring.ring_buffer import TelemetryRingBuffer
 from tests.test_mock_data import (

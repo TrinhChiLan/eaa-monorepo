@@ -5,14 +5,13 @@ import random
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from mock_data.schemas.events import (
     CVFrameWire,
     IntentWire,
     SensorSnapshotWire,
     UICommandWire,
 )
+from pydantic import ValidationError
 from tests.mock.feed import (
     FeedConfig,
     MockFeed,
