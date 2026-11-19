@@ -21,6 +21,7 @@ from typing import Any
 
 from control_pipeline import codec
 from control_pipeline.bridge.transport import ByteTransport
+from control_pipeline.contracts import TelemetryListener
 from control_pipeline.schemas.arbiter import SensorReading
 from control_pipeline.schemas.bridge import (
     BridgeHealth,
