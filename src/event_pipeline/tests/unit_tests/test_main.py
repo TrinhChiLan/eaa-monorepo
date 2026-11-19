@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-
 from main_nvhn import _format_event_time, _format_stats, run
 from mock_data.config import Settings
 from mock_data.schemas.telemetry import PersistenceStats, RingBufferStats, RouterStats

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [orchestrator, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  event-pipeline:
+    name: event_pipeline (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # Same targets developers run locally; the Makefile stays the single
+      # source of truth so CI and a local checkout cannot drift.
+      - name: Install
+        run: make install
+
+      - name: Lint, format check, and unit tests
+        run: make check
+
+      - name: End-to-end smoke (schema v2, WAL, source index removed)
+        run: make smoke

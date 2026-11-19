@@ -1,48 +1,11 @@
 PYTHON ?= python3
 VENV_BIN := .venv/bin
 
-ENTRYPOINT := src/main_nvhn.py
-MOCK_FEED := src/tests/mock/feed.py
+# The event pipeline owns its own tree; scope every target to it so changes
+# elsewhere cannot break this workflow (and vice versa).
+EVENT_DIR := src/event_pipeline
 
-SOURCE_FILES := \
-	src/main_nvhn.py \
-	src/db_client/__init__.py \
-	src/db_client/database.py \
-	src/db_client/repository.py \
-	src/event_router/__init__.py \
-	src/event_router/event_router.py \
-	src/telemetry_ring/__init__.py \
-	src/telemetry_ring/ring_buffer.py \
-	src/mock_data/__init__.py \
-	src/mock_data/config.py \
-	src/mock_data/contracts.py \
-	src/mock_data/constants/__init__.py \
-	src/mock_data/constants/zmq_topics.py \
-	src/mock_data/schemas/__init__.py \
-	src/mock_data/schemas/events.py \
-	src/mock_data/schemas/telemetry.py
-
-TEST_HELPER_FILES := \
-	src/tests/__init__.py \
-	src/tests/conftest.py \
-	src/tests/test_mock_data.py \
-	src/tests/mock/__init__.py \
-	src/tests/mock/feed.py \
-	src/tests/unit_tests/__init__.py
-
-TEST_FILES := \
-	src/event_pipeline/tests/unit_tests/test_config.py \
-	src/event_pipeline/tests/unit_tests/test_events.py \
-	src/event_pipeline/tests/unit_tests/test_integration.py \
-	src/event_pipeline/tests/unit_tests/test_main.py \
-	src/event_pipeline/tests/unit_tests/test_mocks.py \
-	src/event_pipeline/tests/unit_tests/test_persistence.py \
-	src/event_pipeline/tests/unit_tests/test_ring_buffer.py \
-	src/event_pipeline/tests/unit_tests/test_router.py
-
-PY_FILES := $(SOURCE_FILES) $(TEST_HELPER_FILES) $(TEST_FILES)
-
-.PHONY: install test lint format format-check run mock clean-db clean-ipc
+.PHONY: install test lint format format-check check run mock smoke clean-db clean-ipc
 
 install:
 	$(PYTHON) -m venv .venv
@@ -50,26 +13,38 @@ install:
 	$(VENV_BIN)/pip install -e ".[dev]"
 
 test:
-	$(VENV_BIN)/pytest $(TEST_FILES)
+	$(VENV_BIN)/pytest $(EVENT_DIR)/tests -q
 
 lint:
-	$(VENV_BIN)/ruff check $(PY_FILES)
+	$(VENV_BIN)/ruff check $(EVENT_DIR)
 
 format:
-	$(VENV_BIN)/ruff format $(PY_FILES)
+	$(VENV_BIN)/ruff format $(EVENT_DIR)
 
 format-check:
-	$(VENV_BIN)/ruff format --check $(PY_FILES)
+	$(VENV_BIN)/ruff format --check $(EVENT_DIR)
+
+check: lint format-check test
 
 run:
-	$(VENV_BIN)/python $(ENTRYPOINT)
+	$(VENV_BIN)/eaa-orchestrator
 
 mock:
-	$(VENV_BIN)/python $(MOCK_FEED)
+	$(VENV_BIN)/eaa-mock-feed
+
+# End-to-end guard: the console scripts must exist, the orchestrator must run a
+# real cycle, and the database it produces must still be schema v2 with no
+# source index (the flash-wear change).
+smoke:
+	@set -e; s=$$(mktemp -d); trap 'rm -rf "$$s"' EXIT; \
+	$(VENV_BIN)/eaa-orchestrator --help > /dev/null; \
+	$(VENV_BIN)/eaa-mock-feed --help > /dev/null; \
+	$(VENV_BIN)/eaa-orchestrator --duration 1 \
+		--db-path "$$s/edge.db" --ipc-dir "$$s" > /dev/null; \
+	$(VENV_BIN)/python -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); v=c.execute("PRAGMA user_version").fetchone()[0]; j=c.execute("PRAGMA journal_mode").fetchone()[0]; i=c.execute("SELECT name FROM sqlite_master WHERE type=? AND name=?", ("index","ix_events_source_time")).fetchone(); assert (v,j,i)==(2,"wal",None), (v,j,i); print("smoke ok: schema v2, WAL, no source index")' "$$s/edge.db"
 
 clean-db:
-	rm -f src/tests/db_test/edge_system.db src/tests/db_test/edge_system.db-wal src/tests/db_test/edge_system.db-shm
-	rm -f data/edge_system.db data/edge_system.db-wal data/edge_system.db-shm
+	rm -f $(EVENT_DIR)/tests/db_test/edge_system.db*
 
 clean-ipc:
 	rm -f /tmp/eaa/*.ipc /tmp/eaa/*.pub /tmp/eaa/*.pull /tmp/eaa/.router.lock

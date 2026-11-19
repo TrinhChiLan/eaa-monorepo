@@ -3,8 +3,6 @@ from __future__ import annotations
 import math
 
 import pytest
-from pydantic import ValidationError
-
 from mock_data.schemas.events import (
     CVFramePayload,
     CVFrameWire,
@@ -15,6 +13,7 @@ from mock_data.schemas.events import (
     SensorSnapshotPayload,
     UICommandPayload,
 )
+from pydantic import ValidationError
 from tests.test_mock_data import make_sensor_event
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from db_client.database import SCHEMA_VERSION, Database
 from db_client.repository import (
     HalfSyncHalfAsyncPersistenceWorker,
