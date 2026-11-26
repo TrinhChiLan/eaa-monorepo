@@ -6,6 +6,7 @@ that keep the device healthy. It does not change the event-driven architecture o
 the at-most-once persistence contract.
 
 - [EDGE_OPTIMIZATION_REPORT.md](EDGE_OPTIMIZATION_REPORT.md) — measurements and change rationale
+- [BENCHMARKING.md](BENCHMARKING.md) — measuring bytes written, latency and memory
 - `src/event_pipeline/mock_data/config.py` — the settings read by `Settings.from_env()`
 - `src/event_pipeline/main_nvhn.py` — runtime wiring and stats output
 

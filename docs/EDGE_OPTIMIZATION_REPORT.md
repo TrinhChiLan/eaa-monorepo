@@ -313,7 +313,8 @@ development environment only ran the synthetic benchmark and a short smoke test.
 ## 7. How to reproduce the key numbers on the target
 
 Use the committed benchmark, which reproduces the §2 methodology and records more
-than the report originally measured:
+than the report originally measured. Full documentation:
+[BENCHMARKING.md](BENCHMARKING.md).
 
 ```bash
 make bench                     # edge profile: 5 Hz, 60 s
