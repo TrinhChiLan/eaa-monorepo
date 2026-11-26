@@ -5,6 +5,7 @@ real hardware. All facts below were verified on the board itself, not assumed
 from datasheets.
 
 - [BENCHMARKING.md](BENCHMARKING.md) — what the benchmark measures
+- [UNO_Q_STORAGE_REPORT.md](UNO_Q_STORAGE_REPORT.md) — eMMC capabilities and measured storage behaviour
 - [EDGE_DEPLOYMENT.md](EDGE_DEPLOYMENT.md) — the systemd service and production profile
 - [EDGE_OPTIMIZATION_REPORT.md](EDGE_OPTIMIZATION_REPORT.md) — the numbers this re-verifies
 

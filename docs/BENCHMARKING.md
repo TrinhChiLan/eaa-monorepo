@@ -226,6 +226,9 @@ not a failure.
 See [UNO_Q_SETUP.md](UNO_Q_SETUP.md) for the Arduino UNO Q (`rora`): offline
 wheelhouse install (PyPI is blocked there), the `PYTHONPATH=src` invocation when
 the package is not installed, and measured dev-host-vs-board results.
+Storage-level findings for that board (eMMC capabilities, mount options,
+`--checkpoint-truncate`) are in
+[UNO_Q_STORAGE_REPORT.md](UNO_Q_STORAGE_REPORT.md).
 
 ---
 
