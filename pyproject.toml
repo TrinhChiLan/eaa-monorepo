@@ -24,6 +24,7 @@ dev = [
 [project.scripts]
 eaa-orchestrator = "event_pipeline.main_nvhn:cli"
 eaa-mock-feed = "event_pipeline.tests.mock.feed:cli"
+eaa-bench-persistence = "event_pipeline.bench_persistence:cli"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

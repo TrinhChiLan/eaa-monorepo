@@ -163,6 +163,12 @@ writable under `ProtectSystem=strict`.
 .venv/bin/ruff check src/event_pipeline
 .venv/bin/ruff format --check src/event_pipeline
 
+# Persistence benchmark: bytes written, latency percentiles, queue depth,
+# flush/checkpoint time, RSS, and DB/WAL growth.  Writes summary.json +
+# timeseries.csv under bench-results/.
+make bench
+make bench-smoke
+
 # Database checks
 .venv/bin/python - <<'PY'
 import sqlite3

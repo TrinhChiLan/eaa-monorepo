@@ -5,7 +5,7 @@ VENV_BIN := .venv/bin
 # elsewhere cannot break this workflow (and vice versa).
 EVENT_DIR := src/event_pipeline
 
-.PHONY: install test lint format format-check check run mock smoke clean-db clean-ipc
+.PHONY: install test lint format format-check check run mock bench bench-smoke smoke clean-db clean-ipc
 
 install:
 	$(PYTHON) -m venv .venv
@@ -31,6 +31,20 @@ run:
 
 mock:
 	$(VENV_BIN)/eaa-mock-feed
+
+# Reusable persistence benchmark: bytes written, latency percentiles, queue depth,
+# flush/checkpoint time, RSS and DB/WAL growth.  Artifacts are written to
+# bench-results/<label>-<utc timestamp>/.  Run `python -m
+# event_pipeline.bench_persistence --help` for the full flag list.
+bench:
+	$(VENV_BIN)/python -m event_pipeline.bench_persistence \
+		--label edge-profile --rate 5 --duration 60
+
+# Fast harness check: saturating write rate, short window, observable in CI logs.
+bench-smoke:
+	$(VENV_BIN)/python -m event_pipeline.bench_persistence \
+		--label smoke --rate 200 --duration 3 --flush-interval 0.5 \
+		--sample-interval 0.2 --read-interval 0.2 --out bench-results/smoke
 
 # End-to-end guard: the console scripts must exist, the orchestrator must run a
 # real cycle, and the database it produces must still be WAL-mode with the

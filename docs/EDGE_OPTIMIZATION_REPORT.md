@@ -312,12 +312,41 @@ development environment only ran the synthetic benchmark and a short smoke test.
 
 ## 7. How to reproduce the key numbers on the target
 
-1. Install the edge env profile from `deploy/eaa.env` (10 s/50 rows).
-2. Run the mock feed or a calibrated producer at 5 Hz sensor rate.
-3. Record `persistence.batches_flushed` and `rows_inserted` from the grouped stats
-   log; the ratio should be ≈50 rows/batch.
-4. Read the block device's written sectors from `/proc/diskstats` before/after a
-   30–60 minute run.
-5. Repeat with `EAA_DB_FLUSH_INTERVAL=2` to quantify the local difference; the
-   expected direction is a roughly 40% reduction, but use the target's own media
-   numbers for the final decision.
+Use the committed benchmark, which reproduces the §2 methodology and records more
+than the report originally measured:
+
+```bash
+make bench                     # edge profile: 5 Hz, 60 s
+python -m event_pipeline.bench_persistence --help   # full flag list
+make bench-smoke               # 3 s saturating harness check
+```
+
+It drives the real `HalfSyncHalfAsyncPersistenceWorker` → `TelemetryRepository`
+path (no production code changes; the repository is wrapped) and writes
+`summary.json` + `timeseries.csv` under `bench-results/<label>-<timestamp>/`,
+printing a summary table. It records:
+
+| Metric | Source |
+|---|---|
+| Bytes written | Δ`wchar` from `/proc/self/io` (bytes handed to the filesystem), plus WAL volume and DB growth; `bytes_per_row` derived from `wchar` |
+| Read/write latency p50/p95/p99 | enqueue (`submit`), flush (`bulk_insert`), submit→durable end to end, `fetch_recent`, `count`, prune, checkpoint |
+| Queue depth | `PersistenceStats.queue_size` sampled over time, plus drop counters |
+| Flush and checkpoint time | flush is the `bulk_insert` duration; checkpoints are timed explicitly in `--checkpoint-mode manual` (the default, matching §2) |
+| RAM | `VmRSS` over time, peak RSS, `VmHWM` |
+| DB and WAL size over time | sampled file sizes in `timeseries.csv`, with start/end/peak in the summary |
+
+Notes for interpreting the output:
+
+- `wchar` measures bytes written *through the filesystem*, not physical NAND
+  writes. For flash wear, still read the block device's written sectors from
+  `/proc/diskstats` before/after a 30–60 minute run (the benchmark also reports
+  device sectors when the device is visible, but that is system-wide and often
+  unavailable in containers).
+- `write_bytes` is frequently 0 because writeback is attributed asynchronously;
+  the summary marks it unavailable rather than reporting a misleading zero.
+- Use `--checkpoint-mode auto` to measure a production-like I/O pattern; SQLite's
+  internal autocheckpoint cannot be timed, so checkpoint latency is then reported
+  as unavailable while WAL volume is estimated from observed shrinkage.
+- Repeat with `--flush-interval 2 --batch-size 50` to quantify the batching
+  difference; the expected direction is a roughly 40% reduction, but use the
+  target's own media numbers for the final decision.
