@@ -221,6 +221,12 @@ python -c "import sqlite3; print(sqlite3.connect('/tmp/bench.db').execute('SELEC
 grow once the writer cannot keep up. That is the intended behaviour of the mode,
 not a failure.
 
+### Running on the target hardware
+
+See [UNO_Q_SETUP.md](UNO_Q_SETUP.md) for the Arduino UNO Q (`rora`): offline
+wheelhouse install (PyPI is blocked there), the `PYTHONPATH=src` invocation when
+the package is not installed, and measured dev-host-vs-board results.
+
 ---
 
 ## 7. Flag reference
