@@ -45,18 +45,102 @@ Each run writes into `bench-results/<label>-<UTC timestamp>/` (or `--out DIR`):
 | Bytes written | `io.wchar_bytes`, `io.bytes_per_row` | Δ`wchar` from `/proc/self/io`: bytes the process handed to the filesystem, counted at syscall time |
 | WAL volume | `io.wal_logical_bytes` | Monotonic growth accumulation across checkpoints (see §4) |
 | DB growth | `io.db_growth_bytes`, `storage.db_*` | File size sampling |
-| Write latency | `latency_ms.enqueue`, `.flush`, `.end_to_end` | `submit()` duration; `bulk_insert` duration; per-event submit→durable |
+| Write latency | `latency_ms.enqueue`, `.flush`, `.end_to_end` | See §2.1 — three different spans of the same request |
 | Read latency | `latency_ms.read_fetch_recent`, `.read_count` | Timed `fetch_recent` / `count` while writes are in flight |
 | Maintenance latency | `latency_ms.prune`, `.checkpoint` | Timed `prune` / `PRAGMA wal_checkpoint` |
 | Queue depth | `queue.max_depth`, `.mean_depth`, `.p95_depth`, `timeseries.queue_size` | `PersistenceStats.queue_size` sampled every `--sample-interval` |
 | Drops / failures | `queue.dropped_queue_full`, `.dropped_low_disk`, `.failed_batches`, `.unflushed_on_shutdown` | Final `PersistenceStats` |
-| Flush time | `latency_ms.flush` | Wall time of one `bulk_insert` (includes `BEGIN`/`COMMIT`) |
-| Checkpoint time | `latency_ms.checkpoint` | Wall time of an explicit checkpoint; unavailable in `auto` mode (§5) |
 | RAM | `memory.rss_start_kb`, `.rss_end_kb`, `.rss_peak_kb`, `.hwm_kb` | `VmRSS` sampling, `VmHWM` |
 | DB/WAL over time | `timeseries.db_bytes`, `.wal_bytes`, `.shm_bytes` | File size each sample |
 
-Every latency series reports `n`, `min`, `mean`, `max`, `p50`, `p95`, `p99`, with
-percentiles linear-interpolated over the sorted samples.
+Every latency series reports the same eight fields — see §2.2 for the statistic
+labels and §2.1 for what each series actually times.
+
+### 2.1 Latency metrics
+
+An event's journey is **produce → `submit()` → queue → batch → `bulk_insert` →
+commit**. Each latency series measures one span of that journey. They are not
+alternatives to compare against each other; together they say *where* the time
+goes.
+
+| Series | What is timed | Span | Unit |
+|---|---|---|---|
+| `enqueue` | One `await worker.submit(event)` call in the producer | produce → accepted into the in-process queue | ms |
+| `flush` | One `await repository.bulk_insert(batch)` call in the worker | batch handed to the DB → commit returns | ms |
+| `end_to_end` | `time.perf_counter()` at submit → completion of the flush that contains the event | produce → durable on disk | ms |
+| `read_fetch_recent` | One `await repository.fetch_recent(limit=--read-limit)` | call → rows returned | ms |
+| `read_count` | One `await repository.count()` | call → count returned | ms |
+| `prune` | One worker-side `await repository.prune(...)` | call → deleted rows returned | ms |
+| `checkpoint` | One `PRAGMA wal_checkpoint(PASSIVE\|TRUNCATE)` | pragma issued → pragma returns | ms |
+
+- **`enqueue`** — how long `submit()` takes on the producer's side. `submit()`
+  never waits for I/O: it does a non-blocking `put_nowait` (`repository.py`)
+  and returns immediately, so this is normally tens of microseconds at 5 Hz.
+  It is **not** where batching latency lives. It does rise when the producer
+  saturates (`--rate 0`) because the producer and worker now contend for the
+  same event loop.
+- **`flush`** — the work the worker actually does for a batch:
+  `BEGIN IMMEDIATE` → `executemany` of the row inserts → `COMMIT`, under the
+  repository's write lock (so a concurrent checkpoint or read can be included).
+  Its `n` is the number of committed batches, i.e. roughly
+  `duration / flush_interval` under the edge profile
+  (5–6 for `make bench`), so **`flush` percentiles over a handful of samples
+  are statistically weak** — read `mean`/`max`, not `p99`, when `n` is small.
+  A failed attempt that is retried is timed separately (each `bulk_insert`
+  call appends one sample), so a retried batch contributes 2+ samples and an
+  abandoned batch contributes `--max-retries + 1` samples with no row.
+- **`end_to_end`** — the user-visible durability latency. This includes the
+  batching window (`flush_interval`) plus `flush`. Its `n` counts *persisted
+  events* (one sample per row in a successful batch), so it is the only
+  latency series weighted by events rather than by calls. Events that were
+  dropped, or were still buffered when the run ended, never appear in it.
+- **`read_fetch_recent` / `read_count`** — issued by a separate reader task
+  every `--read-interval` seconds while writes are in flight, i.e. they
+  measure read latency *under concurrent write load*. Both go through the
+  same `aiosqlite` connection as the writer, so they include connection
+  serialisation (§4.4). `n` ≈ `duration / read_interval`. With
+  `--read-interval 0` both are present with `n = 0` and `null` percentiles.
+- **`prune`** — recorded only when retention is enabled
+  (`--retention-max-rows > 0`); otherwise `n = 0` and everything is `null`.
+  Prune runs *inside* the worker's write path, right after a successful flush
+  and at most once per `--prune-interval`, so its cost is added to the
+  `end_to_end` of the batch that triggered it.
+- **`checkpoint`** — recorded only in `--checkpoint-mode manual` (§5), where
+  the benchmark triggers checkpoints itself. `n` is one more than the number
+  of threshold-triggered checkpoints, because the run performs a final
+  checkpoint after the worker drains. In `auto` mode the field is present with
+  `n = 0` and all values `null`: SQLite's internal autocheckpoints cannot be
+  timed.
+
+### 2.2 Percentile fields and labels
+
+Each `latency_ms.<series>` object in `summary.json` is a summary of that
+series' raw samples (`_summarize_ms` in `bench_persistence.py`):
+
+| Field | Meaning |
+|---|---|
+| `n` | Number of samples: operations for `flush`/`prune`/`checkpoint`/`enqueue`/reads, events for `end_to_end`. `n = 0` means the series was not exercised and every value is `null` |
+| `min` | Fastest single sample; mostly a sanity floor |
+| `mean` | Arithmetic mean; less skewed by one outlier than `max` |
+| `max` | Slowest single sample; with small `n` this *is* the tail |
+| `p50` | Median — the typical case. Compare it with `mean` to spot skew |
+| `p95` | 95th percentile — the tail to quote for read latency |
+| `p99` | 99th percentile — the tail used for the audit-loss argument. Needs `n` in the hundreds to be meaningful (see `flush` above) |
+
+All values are **milliseconds** and rounded to 3 decimals in `summary.json`.
+Percentiles are linear-interpolated over the sorted samples: rank
+`r = p/100 × (n − 1)`; the result is `x[⌊r⌋] + (x[⌊r⌋+1] − x[⌊r⌋]) × (r − ⌊r⌋)`.
+A single sample returns itself for every percentile, and a percentile can never
+exceed `max` — so a `p99 ≈ max` in the table means the series simply has few
+samples, not that the distribution is pathological. Latencies are measured with
+`time.perf_counter()` on the event loop thread and therefore include asyncio
+scheduling delay and, during `--rate 0` runs, contention with the producer task.
+They do **not** include filesystem writeback that happens after `COMMIT`
+returns; that write cost is reported separately as bytes (§4.1).
+
+The human-readable table (§8) prints `p50`, `p95`, `p99` and `n` per series;
+`min`, `mean` and `max` are only in `summary.json`. Any `n/a` in that table
+means the value is `null`: the series was not exercised in this run (`n = 0`).
 
 ---
 
