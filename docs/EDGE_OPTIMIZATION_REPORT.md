@@ -91,8 +91,12 @@ case from the 10-row to the 50-row row.
 
 ### 3.1 `src/event_pipeline/db_client/database.py`
 
-- **Schema v2.** `SCHEMA_VERSION = 2`; the v1→v2 migration drops
-  `ix_events_source_time`. Existing v1 databases migrate in place.
+- **Relational schema, no migrations.** The schema is created idempotently with
+  `CREATE … IF NOT EXISTS`, including the `event_types`/`event_sources` lookup
+  tables and foreign keys. There is no `SCHEMA_VERSION` or `PRAGMA user_version`
+  any more: while the system is in development a schema change means deleting
+  the (disposable, gitignored) database file. See
+  [RELATIONAL_DB_DESIGN_REVIEW.md](RELATIONAL_DB_DESIGN_REVIEW.md).
 - **Wear pragmas.**
   - `PRAGMA temp_store=MEMORY` — prune/query temp work stays in RAM instead of
     writing a temp file.
@@ -117,8 +121,9 @@ case from the 10-row to the 50-row row.
   nothing when the table is at or below the limit.
 - **Source filter.** `fetch_recent(source=...)` maps source to its 1:1 event type
   and uses the `(event_type, event_time)` index. A conflicting `event_type` returns
-  an empty list; `source=SYSTEM` returns an empty list because no system event type
-  exists in this slice.
+  an empty list. The mapping covers every `EventSource`, including `SYSTEM`, which
+  now has its own `system.audit` event type (see
+  [RELATIONAL_DB_DESIGN_REVIEW.md](RELATIONAL_DB_DESIGN_REVIEW.md) §2).
 - **Free space.** `TelemetryRepository.free_bytes()` delegates to the database.
 - **Low-disk guard.** The worker accepts `min_free_bytes`; before a batch, if free
   space is below the floor it drops the batch, increments `dropped_low_disk`, and
@@ -157,8 +162,11 @@ case from the 10-row to the 50-row row.
 ### 3.7 Tests
 
 - `test_config.py`: defaults, env overrides, validation for the new settings.
-- `test_persistence.py`: wear pragmas, v1→v2 migration, source-index removal,
-  prune-under-limit no-op, source-filter mapping, low-disk drop.
+- `test_persistence.py`: wear pragmas, lookup seeding, foreign-key/CHECK
+  enforcement, generated-column readback, idempotent re-open, source-index
+  removal, prune-under-limit no-op, source-filter mapping, audit readback by
+  source, the source/event-type bijection guard, the write-cost guard, and the
+  low-disk drop.
 - `test_router.py`: IPC path-length rejection.
 - `test_main.py`: formatted stats include `dropped_low_disk`; startup free-space
   guard raises with a clear error.
@@ -201,10 +209,14 @@ keeps the existing 1000-page autocheckpoint and caps WAL space separately.
 ### Why remove the source index
 
 `source` and `event_type` are 1:1 in this contract (`cv`↔`cv.frame`,
-`sensor`↔`sensor.snapshot`, `stt`↔`stt.intent`, `ui`↔`ui.command`). The old
-`ix_events_source_time` duplicated the `(event_type, event_time)` index. Removing
-it reduces B-tree writes and DB size. If future sources share event types, the
-index decision must be revisited.
+`sensor`↔`sensor.snapshot`, `stt`↔`stt.intent`, `ui`↔`ui.command`,
+`system`↔`system.audit`). The old `ix_events_source_time` duplicated the
+`(event_type, event_time)` index. Removing it reduces B-tree writes and DB size.
+That 1:1 claim used to be false at runtime: state-transition audit rows were
+written as `ui.command` with `source=system`, which made them unreachable by
+source. They now use the dedicated `system.audit` event type, and a test asserts
+the mapping stays a bijection. If future sources share event types, the index
+decision must be revisited (a source index costs a measured +14–19 % writes).
 
 ### Why no `VACUUM`
 
@@ -235,9 +247,9 @@ explicit to prevent page-moving rewrites.
 ### Automated
 
 ```text
-pytest src/event_pipeline/tests -q        65 passed in ~1.7 s
+pytest src/event_pipeline/tests -q        73 passed in ~2.4 s
 ruff check src/event_pipeline             All checks passed
-ruff format --check src/event_pipeline    31 files already formatted
+ruff format --check src/event_pipeline    All files already formatted
 ```
 
 ### Smoke test
@@ -246,13 +258,13 @@ A full `main.run()` with temporary IPC/DB directories and `duration=1` produced:
 
 ```text
 journal_mode wal
-user_version 2
 source_index None
 rows 0
 wal_exists False
 ```
 
-The clean shutdown removes the WAL; the source index is absent; the schema is v2.
+The clean shutdown removes the WAL; the source index is absent, and the
+`event_types`/`event_sources` lookups are seeded from the enums.
 
 ### systemd unit
 
@@ -284,14 +296,15 @@ development environment only ran the synthetic benchmark and a short smoke test.
   is a policy decision and needs separate tests.
 - **`temp_store=MEMORY` RAM use.** Small, but on a 128–256 MB device monitor RSS.
 - **Source-filter assumption.** The index removal assumes the current 1:1
-  source/event-type contract. Future sources sharing an event type need a new index
-  or query plan.
+  source/event-type contract, which is now enforced by a test. Future sources
+  sharing an event type need a new index (+14–19 % writes) or a different query plan.
 - **High-water mark.** Without `VACUUM`, the DB file does not shrink after a large
   delete. Plan retention and partition size accordingly, or rotate the DB during
   maintenance.
 - **Deferred row slimming.** `topic` and `source` are derivable from `event_type`,
   and `payload_json` repeats `"kind"`. Removing them would reduce row bytes further
-  but requires a schema migration and read-path changes.
+  but changes the read path. This is now a DB-file-size question only; it saves no
+  write bytes, so it is not worth the churn while the payload contract is moving.
 - **No long soak or power-loss test** in this environment. The target acceptance
   should include a one-hour soak, a reboot, and a simulated full disk.
 

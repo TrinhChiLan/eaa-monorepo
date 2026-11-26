@@ -58,9 +58,18 @@ The code also sets:
 - `PRAGMA auto_vacuum=NONE` — no page movement or `VACUUM` rewrite.
 - `PRAGMA journal_size_limit=<bytes>` — bounds WAL space after checkpoint.
 - A clean-shutdown `PRAGMA wal_checkpoint(TRUNCATE)`.
-- A source/event-type index cleanup: `source` and `event_type` are 1:1, so the old
-  `(source, event_time)` index was removed in schema v2. `fetch_recent(source=...)`
-  now uses the `(event_type, event_time)` index.
+- A source/event-type index cleanup: `source` and `event_type` are 1:1 (now
+  including `system`↔`system.audit`), so the redundant `(source, event_time)`
+  index is gone. `fetch_recent(source=...)` uses the `(event_type, event_time)`
+  index.
+- `event_types` and `event_sources` lookup tables with foreign keys from
+  `telemetry_events`, seeded from the enums on connect; unknown values are
+  rejected by SQLite rather than by convention.
+
+There is **no schema-version or migration step**. The schema is created with
+`CREATE … IF NOT EXISTS`, so a schema change means deleting the database file
+first — acceptable while in development, but plan a migration before any real
+device carries data worth keeping.
 
 Do **not** add `VACUUM` as a periodic maintenance step; it rewrites the whole
 database. The file size stays at its high-water mark, and freed pages are reused.
@@ -159,8 +168,11 @@ writable under `ProtectSystem=strict`.
 import sqlite3
 con = sqlite3.connect("/var/lib/eaa/edge_system.db")
 print("journal_mode:", con.execute("PRAGMA journal_mode").fetchone()[0])
-print("user_version:", con.execute("PRAGMA user_version").fetchone()[0])
 print("rows:", con.execute("SELECT COUNT(*) FROM telemetry_events").fetchone()[0])
+print("event_types:", con.execute("SELECT COUNT(*) FROM event_types").fetchone()[0])
+print("audit rows:", con.execute(
+    "SELECT COUNT(*) FROM telemetry_events WHERE event_type='system.audit'"
+).fetchone()[0])
 print("pruned/dropped counters are in the stats log")
 con.close()
 PY

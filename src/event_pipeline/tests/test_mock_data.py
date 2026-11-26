@@ -10,6 +10,7 @@ from mock_data.constants.zmq_topics import (
     TOPIC_CV_FRAME,
     TOPIC_SENSOR_SNAPSHOT,
     TOPIC_STT_INTENT,
+    TOPIC_SYSTEM_AUDIT,
     TOPIC_UI_COMMAND,
 )
 from mock_data.contracts import SubmitOutcome
@@ -19,6 +20,7 @@ from mock_data.schemas.events import (
     EventSource,
     IntentPayload,
     SensorSnapshotPayload,
+    SystemAuditPayload,
     UICommandPayload,
 )
 
@@ -78,6 +80,29 @@ def make_ui_event(*, sequence: int = 0, event_time: float | None = None) -> Even
         payload=UICommandPayload(action="pause", parameters={"source": "test"}),
         source=EventSource.UI,
         topic=TOPIC_UI_COMMAND,
+        sequence=sequence,
+        event_time=event_time,
+    )
+
+
+def make_audit_event(
+    *,
+    sequence: int = 0,
+    event_time: float | None = None,
+    previous_state: str = "idle",
+    current_state: str = "running",
+) -> EventEnvelope:
+    """Build the state-transition audit event the control pipeline emits."""
+    return EventEnvelope.create(
+        payload=SystemAuditPayload(
+            action=f"transition:{previous_state}->{current_state}",
+            previous_state=previous_state,
+            current_state=current_state,
+            trigger="start_cmd",
+            origin="ui",
+        ),
+        source=EventSource.SYSTEM,
+        topic=TOPIC_SYSTEM_AUDIT,
         sequence=sequence,
         event_time=event_time,
     )

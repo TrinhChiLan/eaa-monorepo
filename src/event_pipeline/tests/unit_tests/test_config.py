@@ -15,6 +15,9 @@ def test_settings_defaults() -> None:
     assert settings.flush_interval == 2.0
     assert settings.max_retries == 3
     assert settings.persist_event_types == DEFAULT_PERSIST_EVENT_TYPES
+    # The state/safety audit trail must never be filtered out by default.
+    assert EventType.SYSTEM_AUDIT in settings.persist_event_types
+    assert EventType.CV_FRAME not in settings.persist_event_types
     assert settings.retention is not None
     assert settings.retention.max_rows == 1_000_000
     assert settings.retention.max_age_seconds == 7 * 86_400

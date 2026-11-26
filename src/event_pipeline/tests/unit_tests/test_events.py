@@ -11,10 +11,11 @@ from mock_data.schemas.events import (
     EventType,
     IntentPayload,
     SensorSnapshotPayload,
+    SystemAuditPayload,
     UICommandPayload,
 )
 from pydantic import ValidationError
-from tests.test_mock_data import make_sensor_event
+from tests.test_mock_data import make_audit_event, make_sensor_event
 
 
 def test_envelope_json_roundtrip() -> None:
@@ -24,6 +25,42 @@ def test_envelope_json_roundtrip() -> None:
     assert restored.event_type is EventType.SENSOR_SNAPSHOT
     assert restored.source is EventSource.SENSOR
     assert restored.payload.kind == "sensor.snapshot"
+
+
+def test_system_audit_roundtrip() -> None:
+    event = make_audit_event(
+        event_time=1_700_000_000.0, previous_state="idle", current_state="running"
+    )
+    assert event.event_type is EventType.SYSTEM_AUDIT
+    assert event.source is EventSource.SYSTEM
+    assert event.payload.kind == "system.audit"
+
+    restored = EventEnvelope.model_validate_json(event.model_dump_json())
+    assert restored == event
+    assert isinstance(restored.payload, SystemAuditPayload)
+    assert restored.payload.previous_state == "idle"
+    assert restored.payload.current_state == "running"
+
+
+def test_system_audit_cannot_be_written_as_ui_command() -> None:
+    """The audit bug: source=system used to be paired with event_type=ui.command."""
+    with pytest.raises(ValidationError, match="does not match"):
+        EventEnvelope(
+            event_id="abc",
+            event_type=EventType.UI_COMMAND,
+            source=EventSource.SYSTEM,
+            topic="system.audit",
+            sequence=0,
+            event_time=1_700_000_000.0,
+            ingested_at=1_700_000_000.0,
+            payload=SystemAuditPayload(
+                action="transition:idle->running",
+                previous_state="idle",
+                current_state="running",
+                trigger="start_cmd",
+                origin="ui",
+            ),
+        )
 
 
 def test_event_type_must_match_payload_kind() -> None:

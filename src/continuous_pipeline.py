@@ -38,7 +38,10 @@ from control_pipeline.schemas.fsm import FsmStateChanged, FsmTrigger, SystemStat
 from db_client.database import Database
 from db_client.repository import HalfSyncHalfAsyncPersistenceWorker, TelemetryRepository
 from event_router.event_router import EventRouter
-from mock_data.constants.zmq_topics import TOPIC_SENSOR_SNAPSHOT, TOPIC_UI_COMMAND
+from mock_data.constants.zmq_topics import (
+    TOPIC_SENSOR_SNAPSHOT,
+    TOPIC_SYSTEM_AUDIT,
+)
 from mock_data.contracts import SubmitOutcome
 from mock_data.schemas.events import (
     CVFramePayload,
@@ -47,6 +50,7 @@ from mock_data.schemas.events import (
     EventType,
     IntentPayload,
     SensorSnapshotPayload,
+    SystemAuditPayload,
     UICommandPayload,
 )
 from telemetry_ring.ring_buffer import TelemetryRingBuffer
@@ -282,22 +286,20 @@ class ContinuousPipeline(FsmObserver):
         self._event_seq += 1
         now = time.time()
 
-        audit_payload = UICommandPayload(
+        audit_payload = SystemAuditPayload(
             action=f"transition:{change.previous.value}->{change.current.value}",
-            parameters={
-                "trigger": change.trigger.value,
-                "origin": change.origin,
-                "previous_state": change.previous.value,
-                "current_state": change.current.value,
-            },
+            previous_state=change.previous.value,
+            current_state=change.current.value,
+            trigger=change.trigger.value,
+            origin=change.origin,
         )
 
         envelope = EventEnvelope(
             schema_version=1,
             event_id=uuid.uuid4().hex,
-            event_type=EventType.UI_COMMAND,
+            event_type=EventType.SYSTEM_AUDIT,
             source=EventSource.SYSTEM,
-            topic=TOPIC_UI_COMMAND,
+            topic=TOPIC_SYSTEM_AUDIT,
             sequence=self._event_seq,
             event_time=now,
             ingested_at=now,

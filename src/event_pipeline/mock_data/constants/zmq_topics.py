@@ -16,6 +16,10 @@ TOPIC_CV_FRAME = "cv.frame"
 TOPIC_STT_INTENT = "stt.intent"
 TOPIC_SENSOR_SNAPSHOT = "sensor.snapshot"
 TOPIC_UI_COMMAND = "ui.command"
+# Internal-only: state-machine audit records are produced in-process and are
+# never ingested from the wire, so this topic is deliberately absent from
+# ALL_TOPICS and from the router's wire specs.
+TOPIC_SYSTEM_AUDIT = "system.audit"
 
 ALL_TOPICS = (
     TOPIC_CV_FRAME,
@@ -76,6 +80,7 @@ __all__ = [
     "TOPIC_CV_FRAME",
     "TOPIC_SENSOR_SNAPSHOT",
     "TOPIC_STT_INTENT",
+    "TOPIC_SYSTEM_AUDIT",
     "TOPIC_UI_COMMAND",
     "default_ipc_dir",
 ]

@@ -12,7 +12,14 @@ from mock_data.schemas.events import EventType
 from mock_data.schemas.telemetry import RetentionPolicy
 
 DEFAULT_PERSIST_EVENT_TYPES: frozenset[EventType] = frozenset(
-    {EventType.SENSOR_SNAPSHOT, EventType.STT_INTENT, EventType.UI_COMMAND}
+    {
+        EventType.SENSOR_SNAPSHOT,
+        EventType.STT_INTENT,
+        EventType.UI_COMMAND,
+        # State/safety audit is always persisted: dropping it would lose the
+        # transition trail the control pipeline relies on.
+        EventType.SYSTEM_AUDIT,
+    }
 )
 
 # Local SQLite artifacts live under src/event_pipeline/tests/db_test.  Resolve

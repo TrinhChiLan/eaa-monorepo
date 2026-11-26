@@ -18,11 +18,16 @@ from mock_data.contracts import SubmitOutcome
 from mock_data.schemas.events import EventEnvelope, EventSource, EventType
 from mock_data.schemas.telemetry import PersistenceStats, RetentionPolicy
 
+# ``ON CONFLICT(event_id)`` (not ``INSERT OR IGNORE``) so that idempotency
+# applies only to duplicate event ids: ``OR IGNORE`` would also swallow a
+# foreign-key violation from an unknown event_type/source and silently drop the
+# row, which is unacceptable for an audit log.
 _INSERT_SQL = """
-INSERT OR IGNORE INTO telemetry_events (
+INSERT INTO telemetry_events (
     event_id, schema_version, event_type, source, topic,
     sequence, event_time, ingested_at, payload_json
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(event_id) DO NOTHING
 """
 
 _SELECT_COLUMNS = """
@@ -32,13 +37,15 @@ _SELECT_COLUMNS = """
 
 _STOP = object()
 
-# source and event_type are 1:1 in the current contract, so source filters can
-# use the (event_type, event_time) index instead of a redundant source index.
+# source and event_type are a strict 1:1 pair, so source filters can use the
+# (event_type, event_time) index instead of a redundant source index.  Every
+# EventSource must appear here; ``tests`` asserts that this stays a bijection.
 _SOURCE_EVENT_TYPES: dict[EventSource, EventType] = {
     EventSource.CV: EventType.CV_FRAME,
     EventSource.STT: EventType.STT_INTENT,
     EventSource.SENSOR: EventType.SENSOR_SNAPSHOT,
     EventSource.UI: EventType.UI_COMMAND,
+    EventSource.SYSTEM: EventType.SYSTEM_AUDIT,
 }
 
 
@@ -227,7 +234,13 @@ class TelemetryRepository:
 
 
 class HalfSyncHalfAsyncPersistenceWorker:
-    """Bounded, batched, drop-oldest-on-pressure persistence queue."""
+    """Bounded, batched, drop-oldest-on-pressure persistence queue.
+
+    A batch that violates a database constraint (for example an enum value the
+    lookups do not contain) is retried and then dropped whole, and counted in
+    ``failed_batches``.  That is deliberate: such a violation means a contract
+    bug, and retrying forever would stall the queue.
+    """
 
     def __init__(
         self,

@@ -28,6 +28,7 @@ class EventType(StrEnum):
     STT_INTENT = "stt.intent"
     SENSOR_SNAPSHOT = "sensor.snapshot"
     UI_COMMAND = "ui.command"
+    SYSTEM_AUDIT = "system.audit"
 
 
 class EventSource(StrEnum):
@@ -81,8 +82,24 @@ class UICommandPayload(_FrozenModel):
         return value
 
 
+class SystemAuditPayload(_FrozenModel):
+    """A state-machine transition recorded for the durable audit trail.
+
+    System audit records are produced in-process by the control pipeline, not
+    received from the wire, and they carry ``source=system``.  Giving them their
+    own event type is what keeps ``source`` and ``event_type`` a true 1:1 pair.
+    """
+
+    kind: Literal["system.audit"] = EventType.SYSTEM_AUDIT.value
+    action: str = Field(min_length=1, max_length=256)
+    previous_state: str = Field(min_length=1, max_length=64)
+    current_state: str = Field(min_length=1, max_length=64)
+    trigger: str = Field(min_length=1, max_length=64)
+    origin: str = Field(min_length=1, max_length=64)
+
+
 EventPayload = Annotated[
-    CVFramePayload | IntentPayload | SensorSnapshotPayload | UICommandPayload,
+    CVFramePayload | IntentPayload | SensorSnapshotPayload | UICommandPayload | SystemAuditPayload,
     Field(discriminator="kind"),
 ]
 
@@ -188,6 +205,7 @@ __all__ = [
     "JsonScalar",
     "SensorSnapshotPayload",
     "SensorSnapshotWire",
+    "SystemAuditPayload",
     "UICommandPayload",
     "UICommandWire",
 ]
