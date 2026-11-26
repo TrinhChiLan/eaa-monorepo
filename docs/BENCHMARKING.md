@@ -119,12 +119,49 @@ is counted). It therefore excludes the WAL content left by schema initialisation
 so it can legitimately be **smaller** than `storage.wal_peak`, which is the
 absolute file size. Do not expect the two to match.
 
-### 4.3 Queue depth is a sawtooth
+### 4.3 Queue depth stays at 0 when the writer keeps up — and that is correct
 
-With the edge profile (5 Hz, 10 s flush) the queue fills to roughly
-`rate × flush_interval` ≈ 50 and then drains on flush. `max_depth` near that
-value is expected, not a leak. What matters is whether `max_depth` approaches
-`queue_capacity`, and whether `dropped_queue_full` is non-zero.
+`queue.max_depth = 0` under the default profile is expected, not a bug.
+
+The worker blocks on `queue.get()` until the flush deadline (`_collect_batch`),
+so an item is removed from the queue the moment it is handled. The queue
+therefore only holds events that arrive *while the worker is busy* — roughly for
+the duration of a flush, a few milliseconds every `flush_interval` seconds.
+
+Measured on the development host at 5 Hz with a 10 s flush, sampling at 1 kHz:
+
+```
+queue max      : 1
+non-empty      : 13 samples of 2,265 (0.57%)
+persisted so far: 0     <- nothing written yet, by design
+```
+
+So the queue is essentially never observed non-empty by a sampler, even though
+events are in flight: they wait on the flush *timer*, not in the queue. The
+flush-interval design is what creates latency; it does not show up as queue
+depth.
+
+Queue depth therefore only grows persistently under a real bottleneck. For
+contrast, an unpaced producer (`--rate 0`) pins it at capacity:
+
+```
+max depth            10,000 / 10,000 (100.00%)
+mean / p95 depth     8,333.33 / 10,000.00
+non-empty samples    5 / 6
+dropped (full/disk)  276,506 / 0
+```
+
+Use `queue.nonempty_samples / queue.samples` to distinguish the two cases
+without relying on a single sample. Signs of an actual bottleneck:
+
+- `max_depth` climbing toward `queue_capacity` over the run
+- `dropped_queue_full` or `failed_batches` becoming non-zero
+- `queue.unflushed_on_shutdown > 0`
+
+**Where the batching latency actually shows up** is `latency_ms.end_to_end`
+(§4.5), which is p50 ≈ 4 s and p99 ≈ 10 s at this profile. If you want to reason
+about "how much data is buffered but not yet durable", that is
+`rate × flush_interval` ≈ 50 events from arithmetic, not from `queue_size`.
 
 ### 4.4 Read latency includes connection serialisation
 

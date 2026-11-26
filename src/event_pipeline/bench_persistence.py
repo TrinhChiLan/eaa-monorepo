@@ -297,6 +297,9 @@ class _State:
     db_peak: int = 0
     rss_peak_kb: int = 0
     submitted: int = 0
+    queue_seen: int = 0
+    queue_nonempty: int = 0
+    previous_queue: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +383,13 @@ def _capture_sample(
     stats = worker.stats()
     io_counters = _read_proc_io()
     status = _read_proc_status()
+
+    # The worker waits on queue.get() until the flush deadline, so at the edge
+    # profile the queue is almost always empty.  Counting non-empty samples
+    # makes that visible without implying the persistence path is idle.
+    state.queue_seen += 1
+    if stats.queue_size > 0:
+        state.queue_nonempty += 1
 
     wal = sizes["wal_bytes"]
     _observe_wal(state, wal)
@@ -767,6 +777,8 @@ def _build_summary(
             "mean_depth": _round(sum(depths) / len(depths), 2) if depths else None,
             "p95_depth": _round(_percentile(sorted(depths), 95.0), 2) if depths else None,
             "utilization_pct": _round(100.0 * max_depth / max(args.queue_capacity, 1), 2),
+            "samples": state.queue_seen,
+            "nonempty_samples": state.queue_nonempty,
             "dropped_queue_full": final_stats.dropped_queue_full,
             "dropped_low_disk": final_stats.dropped_low_disk,
             "failed_batches": final_stats.failed_batches,
@@ -892,6 +904,7 @@ def print_table(summary: dict[str, Any], paths: tuple[Path, Path] | None) -> Non
         f"  max depth            {_fmt(queue['max_depth'])} / {_fmt(queue['capacity'])} "
         f"({_fmt(queue['utilization_pct'], '%')})",
         f"  mean / p95 depth     {_fmt(queue['mean_depth'])} / {_fmt(queue['p95_depth'])}",
+        f"  non-empty samples    {_fmt(queue['nonempty_samples'])} / {_fmt(queue['samples'])}",
         f"  dropped (full/disk)  {_fmt(queue['dropped_queue_full'])} / "
         f"{_fmt(queue['dropped_low_disk'])}",
         "",
